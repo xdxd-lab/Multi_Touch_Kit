@@ -73,6 +73,7 @@ public final class LoggingGestureOutput: GestureOutput, @unchecked Sendable {
     private var magnifyStart = 0.0
     private var rotation = 0.0
     private var rotationStart = 0.0
+    private var mouseDown: (point: CGPoint, time: Double, drags: Int)?
 
     struct Accumulator {
         var dx = 0.0
@@ -102,8 +103,20 @@ public final class LoggingGestureOutput: GestureOutput, @unchecked Sendable {
         func f(_ v: Double) -> String { String(format: "%.1f", v) }
         for e in events {
             switch e {
+            case .mouseDown(_, let p, _):
+                mouseDown = (p, now, 0)
+                log("[手勢 dry-run] \(e)")
             case .mouseDragged:
-                continue
+                mouseDown?.drags += 1
+            case .mouseUp(_, let p, _):
+                // 拖曳不逐筆印出，放開時標明拖曳距離，避免和點擊混淆
+                if let down = mouseDown, down.drags > 0 {
+                    let distance = hypot(p.x - down.point.x, p.y - down.point.y)
+                    log("[手勢 dry-run] \(e)（拖曳 \(f(distance)) 點、\(down.drags) 筆、\(ms(down.time))）")
+                } else {
+                    log("[手勢 dry-run] \(e)")
+                }
+                mouseDown = nil
             case .scroll(let dx, let dy, let phase):
                 if phase == .began { scroll.reset(at: now) }
                 scroll.add(dx, dy)

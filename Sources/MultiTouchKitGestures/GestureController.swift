@@ -34,6 +34,8 @@ public final class GestureController: @unchecked Sendable {
     private var timer: DispatchSourceTimer?
     private var suspendedSequence = false
     private var activeTouchIDs: Set<UInt64> = []
+    /// 控制器回報 Confidence = false（手掌等非刻意觸碰）的觸點，整個生命週期都不參與手勢。ILITEK 沒有這個欄位
+    private var ignoredTouchIDs: Set<UInt64> = []
 
     public init(configuration: Configuration = .init(), queue: DispatchQueue, output: GestureOutput) {
         self.configuration = configuration
@@ -88,13 +90,16 @@ public final class GestureController: @unchecked Sendable {
             if activeTouchIDs.isEmpty { suspendedSequence = false }
             return
         }
+        for t in frame.touches where t.phase == .began && t.confidence == false { ignoredTouchIDs.insert(t.id) }
+        let touches = frame.touches.filter { !ignoredTouchIDs.contains($0.id) }
+        for t in frame.touches where t.phase.isTerminal { ignoredTouchIDs.remove(t.id) }
         let time = Double(frame.timestamp) / 1e9
         guard let displayID else { return }
         let mapping = ScreenMapping(displayID: displayID)
-        let touches = frame.touches.map {
+        let mapped = touches.map {
             GestureTouch(id: $0.id, position: mapping.globalPoint(x: $0.x, y: $0.y), isDown: !$0.phase.isTerminal)
         }
-        send(recognizer.process(touches, at: time))
+        send(recognizer.process(mapped, at: time))
         updateTimer()
     }
 
@@ -102,6 +107,7 @@ public final class GestureController: @unchecked Sendable {
     public func cancel() {
         send(recognizer.reset())
         activeTouchIDs.removeAll()
+        ignoredTouchIDs.removeAll()
         suspendedSequence = false
         updateTimer()
     }

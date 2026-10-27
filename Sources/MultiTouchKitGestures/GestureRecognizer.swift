@@ -20,6 +20,12 @@ public struct GestureRecognizer: Sendable {
         public var tapSlop: Double = 14
         /// 等待其他手指落下的時間（秒）
         public var settleDuration: Double = 0.05
+        /// 一指拖曳要等多久才按下（秒）：等第二指落下的時間比兩指手勢長，避免兩指手勢的開頭變成拖曳
+        public var dragSettleDuration: Double = 0.12
+        /// 手指按住時會慢慢漂移（例如先放軸心手指、停一下再放第二指旋轉）：位移超過 `tapSlop`
+        /// 但最近速度低於此值時不算拖曳（點／秒），直到位移超過 `slowDragSlop`
+        public var dragMinimumSpeed: Double = 150
+        public var slowDragSlop: Double = 40
         public var longPressDuration: Double = 0.6
         public var twoFingerTapMaxDuration: Double = 0.35
         public var doubleClickInterval: Double = 0.45
@@ -32,11 +38,22 @@ public struct GestureRecognizer: Sendable {
         public var rotationThreshold: Double = 12
         /// 兩指間距小於此值時角度雜訊太大，不判斷也不送出旋轉（點）
         public var rotationMinimumDistance: Double = 60
-        /// 兩指相對位移（指間向量的變化）小於重心位移的這個比例才算捲動；
+        /// 兩指相對位移（指間向量的變化）小於重心位移的這個比例就立即判定為捲動；
         /// 以一指為軸旋轉或單指捏合時，相對位移約為重心位移的 2 倍，不會被當成捲動
-        public var scrollMaximumRelativeMotion: Double = 0.8
-        /// 縮放與旋轉先決定主要的一個；另一個要從決定當下再超過門檻的這個倍數才會一起送出
-        public var secondaryTransformFactor: Double = 2
+        public var scrollMaximumRelativeMotion: Double = 0.5
+        /// 介於上面比例與這個比例之間時方向不明確，等重心位移達到 2 倍捲動門檻再判定
+        public var scrollAmbiguousRelativeMotion: Double = 0.8
+        /// 兩指同時在螢幕上至少這麼久才判定縮放／旋轉（秒），避免短暫的兩指觸碰被當成旋轉
+        public var transformMinimumContact: Double = 0.08
+        /// 旋轉為主時，縮放要從決定當下再變化超過這個倍率（或其倒數）才一起送出
+        public var secondaryMagnifyRatio: Double = 1.35
+        /// 縮放為主時，旋轉要從決定當下再超過門檻的這個倍數才一起送出
+        public var secondaryRotationFactor: Double = 2
+        /// 縮放增益：送出的倍率 = (指距倍率)^magnifyExponent。觸控螢幕的張開範圍比觸控板大很多
+        /// （MF156LR 兩指可從 50 點張到 600 點以上，×12），1 = 與指距等比例
+        public var magnifyExponent: Double = 0.6
+        /// 同時超過這麼多手指（通常是手掌或手的其他部位碰到）就取消目前手勢並忽略到所有手指離開
+        public var maximumFingers: Int = 5
         /// 三指以上重心移動超過此距離開始 swipe（點）
         public var swipeThreshold: Double = 50
         /// swipe progress = 1 所需的手指位移（點）
@@ -88,6 +105,10 @@ public struct GestureRecognizer: Sendable {
     private var maxMovement = 0.0
     /// 手勢決定前每個 frame 的手指位置，決定後用來計算速度（快速甩動時手勢可能只持續幾個 frame）
     private var pendingHistory: [(time: Double, points: [UInt64: CGPoint])] = []
+    /// 這次手勢第一次有兩指同時在螢幕上的時間，與當下各手指的位置（兩指手勢以此為起點，
+    /// 先落下的手指在第二指落下前的漂移不算進兩指手勢）
+    private var twoFingersSince: Double?
+    private var twoFingerOrigin: [UInt64: CGPoint] = [:]
     private var momentum: Momentum?
     private var lastClick: (time: Double, point: CGPoint, count: Int)?
 
@@ -138,13 +159,24 @@ public struct GestureRecognizer: Sendable {
         for (id, p) in down {
             if let s = starts[id] { maxMovement = max(maxMovement, distance(s, p)) }
         }
+        // 誤觸：接觸點過多
+        if down.count > configuration.maximumFingers {
+            if case .waitLift = state {} else {
+                out += cancelCurrent()
+                state = .waitLift
+            }
+        }
+        if down.count >= 2, twoFingersSince == nil {
+            twoFingersSince = time
+            twoFingerOrigin = down
+        }
         if case .pending(_, let fingers) = state {
             pendingHistory.append((time, down))
             if pendingHistory.count > 64 { pendingHistory.removeFirst() }
             // 還在等待其他手指時就放開（快速甩動）：以放開前的狀態立刻決定手勢
             if !lifted.isEmpty, maxMovement > configuration.tapSlop {
                 out += decide(fingers: max(fingers, down.count), elapsed: .infinity,
-                              downIDs: order.filter { down[$0] != nil }, at: time)
+                              downIDs: order.filter { down[$0] != nil }, at: time, lifting: true)
             }
         }
         for id in lifted.keys { down[id] = nil }
@@ -200,12 +232,11 @@ public struct GestureRecognizer: Sendable {
             // 指間距太小時角度不可靠：沿用上一個角度（不送旋轉）
             let angleUsable = d >= configuration.rotationMinimumDistance
             let angle = angleUsable ? self.angle(pa, pb) : lastAngle
-            let factor = configuration.secondaryTransformFactor
             if lastDistance > 0 {
-                let m = d / lastDistance - 1
+                let m = magnification(d / lastDistance)
                 if magnifying {
                     if m != 0 { out.append(.magnify(m, phase: .changed)) }
-                } else if abs(d - commitDistance) >= configuration.pinchThreshold * factor {
+                } else if commitDistance > 0, abs(log(d / commitDistance)) >= log(configuration.secondaryMagnifyRatio) {
                     magnifying = true
                     out.append(.magnify(m, phase: .began))
                 }
@@ -213,7 +244,8 @@ public struct GestureRecognizer: Sendable {
             let turn = -normalizedDegrees(angle - lastAngle)
             if rotating {
                 if turn != 0 { out.append(.rotate(degrees: turn, phase: .changed)) }
-            } else if angleUsable, abs(normalizedDegrees(angle - commitAngle)) >= configuration.rotationThreshold * factor {
+            } else if angleUsable,
+                      abs(normalizedDegrees(angle - commitAngle)) >= configuration.rotationThreshold * configuration.secondaryRotationFactor {
                 rotating = true
                 out.append(.rotate(degrees: turn, phase: .began))
             }
@@ -280,6 +312,18 @@ public struct GestureRecognizer: Sendable {
 
     /// 取消進行中的手勢（例如裝置移除、前景 App 被排除）：按住的滑鼠鍵會放開、連續手勢以 cancelled／ended 結束
     public mutating func reset() -> [GestureEvent] {
+        var out = cancelCurrent()
+        if momentum != nil {
+            out.append(.momentum(dx: 0, dy: 0, phase: .ended))
+            momentum = nil
+        }
+        down.removeAll()
+        endSequence()
+        return out
+    }
+
+    /// 結束目前手勢：按住的滑鼠鍵放開、連續手勢以 cancelled 結束（不改變 state）
+    private func cancelCurrent() -> [GestureEvent] {
         var out: [GestureEvent] = []
         switch state {
         case .pointer(_, let clickCount, let last):
@@ -294,12 +338,6 @@ public struct GestureRecognizer: Sendable {
         case .idle, .pending, .waitLift:
             break
         }
-        if momentum != nil {
-            out.append(.momentum(dx: 0, dy: 0, phase: .ended))
-            momentum = nil
-        }
-        down.removeAll()
-        endSequence()
         return out
     }
 
@@ -321,11 +359,17 @@ public struct GestureRecognizer: Sendable {
         }
     }
 
-    private mutating func decide(fingers: Int, elapsed: Double, downIDs: [UInt64], at time: Double) -> [GestureEvent] {
+    /// - Parameter lifting: 手指在等待期間就放開（快速甩動），只判定捲動、拖曳與 swipe
+    private mutating func decide(fingers: Int, elapsed: Double, downIDs: [UInt64], at time: Double,
+                                 lifting: Bool = false) -> [GestureEvent] {
         guard elapsed >= configuration.settleDuration else { return [] }
         if fingers == 1 {
-            guard let id = downIDs.first, let start = starts[id], let p = down[id],
-                  distance(start, p) > configuration.tapSlop else { return [] }
+            guard elapsed >= configuration.dragSettleDuration else { return [] }
+            guard let id = downIDs.first, let start = starts[id], let p = down[id] else { return [] }
+            let moved = distance(start, p)
+            guard moved > configuration.slowDragSlop
+                || (moved > configuration.tapSlop && recentSpeed(of: id, now: time) >= configuration.dragMinimumSpeed)
+            else { return [] }
             let n = clickCount(at: start, time: time)
             state = .pointer(id: id, clickCount: n, last: p)
             return [.mouseDown(.left, start, clickCount: n), .mouseDragged(.left, p)]
@@ -333,16 +377,23 @@ public struct GestureRecognizer: Sendable {
         if fingers == 2 {
             guard downIDs.count >= 2 else { return [] }
             let (a, b) = (downIDs[0], downIDs[1])
-            let (sa, sb, pa, pb) = (starts[a]!, starts[b]!, down[a]!, down[b]!)
+            let (sa, sb) = (twoFingerOrigin[a] ?? starts[a]!, twoFingerOrigin[b] ?? starts[b]!)
+            let (pa, pb) = (down[a]!, down[b]!)
             let c0 = centroid([sa, sb])
             let c1 = centroid([pa, pb])
             // 兩指運動拆成：重心平移（捲動）與指間向量的變化（縮放＋旋轉）
             let move = distance(c0, c1)
             let relative = hypot((pb.x - pa.x) - (sb.x - sa.x), (pb.y - pa.y) - (sb.y - sa.y))
-            if move >= configuration.scrollThreshold && relative < move * configuration.scrollMaximumRelativeMotion {
+            let parallel = move >= configuration.scrollThreshold && relative < move * configuration.scrollMaximumRelativeMotion
+            let mostlyParallel = move >= configuration.scrollThreshold * 2
+                && relative < move * configuration.scrollAmbiguousRelativeMotion
+            // 等待期間就放開：位移太小（例如手的其他部位一碰即離）不當成甩動
+            if lifting && move < configuration.scrollThreshold * 2 { return [] }
+            if parallel || mostlyParallel {
                 state = .scroll(ids: [a, b], last: c1, samples: history(of: [a, b], now: time))
                 return [.pointer(c0), .scroll(dx: c1.x - c0.x, dy: c1.y - c0.y, phase: .began)]
             }
+            guard !lifting, let since = twoFingersSince, time - since >= configuration.transformMinimumContact else { return [] }
             let (d0, d1) = (distance(sa, sb), distance(pa, pb))
             let stretch = abs(d1 - d0)
             let angleUsable = min(d0, d1) >= configuration.rotationMinimumDistance
@@ -353,7 +404,7 @@ public struct GestureRecognizer: Sendable {
             let rotating = !magnifying && abs(turnDegrees) >= configuration.rotationThreshold
             guard magnifying || rotating else { return [] }
             var out: [GestureEvent] = [.pointer(c0)]
-            if magnifying { out.append(.magnify(d1 / d0 - 1, phase: .began)) }
+            if magnifying { out.append(.magnify(magnification(d1 / d0), phase: .began)) }
             if rotating { out.append(.rotate(degrees: -turnDegrees, phase: .began)) }
             state = .transform(a: a, b: b, commitDistance: d1, commitAngle: angle(pa, pb),
                                lastDistance: d1, lastAngle: angle(pa, pb), magnifying: magnifying, rotating: rotating)
@@ -383,6 +434,20 @@ public struct GestureRecognizer: Sendable {
         order.removeAll()
         maxMovement = 0
         pendingHistory.removeAll()
+        twoFingersSince = nil
+        twoFingerOrigin.removeAll()
+    }
+
+    /// 指距倍率 → 送出的相對放大量（套用 magnifyExponent）
+    private func magnification(_ ratio: Double) -> Double {
+        ratio > 0 ? pow(ratio, configuration.magnifyExponent) - 1 : 0
+    }
+
+    /// 某根手指在最近 velocityWindow 內的速度（點／秒）
+    private func recentSpeed(of id: UInt64, now: Double) -> Double {
+        let samples = trimmed(pendingHistory.compactMap { e in e.points[id].map { Sample(time: e.time, point: $0) } }, now: now)
+        guard let first = samples.first, let last = samples.last, last.time > first.time else { return .infinity }
+        return distance(first.point, last.point) / (last.time - first.time)
     }
 
     /// 手勢決定前這些手指的重心軌跡（計算速度用）

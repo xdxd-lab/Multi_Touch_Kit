@@ -110,9 +110,9 @@ struct Driver {
 
     @Test func resetReleasesHeldButton() {
         var d = Driver()
-        for i in 0...10 { d.frame([(1, 100 + Double(i) * 5, 100, true)]) }
+        for i in 0...20 { d.frame([(1, 100 + Double(i) * 5, 100, true)]) }
         _ = d.take()
-        #expect(d.recognizer.reset() == [.mouseUp(.left, CGPoint(x: 150, y: 100), clickCount: 1)])
+        #expect(d.recognizer.reset() == [.mouseUp(.left, CGPoint(x: 200, y: 100), clickCount: 1)])
         #expect(d.recognizer.isIdle)
     }
 }
@@ -180,9 +180,16 @@ struct Driver {
         #expect(!events.contains { if case .scroll = $0 { true } else { false } })
         #expect(!events.contains { if case .rotate = $0 { true } else { false } })
         #expect(events.last == .magnify(0, phase: .ended))
-        // 每步相對變化量連乘 = 總放大倍率（距離 100 → 300）
+        // 每步相對變化量連乘 = 總放大倍率：指距 100 → 300（×3），增益 0.6 → ×3^0.6
         let scale = events.reduce(1.0) { if case .magnify(let m, _) = $1 { $0 * (1 + m) } else { $0 } }
-        #expect(abs(scale - 3) < 0.001)
+        #expect(abs(scale - pow(3, 0.6)) < 0.001)
+
+        var linear = Driver()
+        linear.recognizer.configuration.magnifyExponent = 1
+        linear.twoFingers(from: CGPoint(x: 400, y: 300), CGPoint(x: 500, y: 300),
+                          to: CGPoint(x: 300, y: 300), CGPoint(x: 600, y: 300), steps: 20)
+        let linearScale = linear.take().reduce(1.0) { if case .magnify(let m, _) = $1 { $0 * (1 + m) } else { $0 } }
+        #expect(abs(linearScale - 3) < 0.001)
     }
 
     @Test func counterClockwiseRotationIsPositive() {
@@ -328,7 +335,65 @@ struct Driver {
         let events = run(path)
         #expect(has(events, isMagnify))
         #expect(has(events, isRotate))
-        #expect(totalRotation(events) > 20)
+        // 決定縮放為主後再轉超過 24° 才送旋轉，所以只送出後段的角度
+        #expect(totalRotation(events) > 10)
+    }
+
+    // 第 2 輪實機 dry-run
+
+    @Test func rotationWithShrinkingDistanceDoesNotMagnify() {
+        // 轉 80°，指距同時從 300 縮到 255（×0.85）→ 不送縮放
+        let path = (0...25).map { i -> (CGPoint, CGPoint) in
+            let k = Double(i) / 25
+            let r = 150 - 22.5 * k
+            let a = k * 80 * .pi / 180
+            return (CGPoint(x: 500 - r * cos(a), y: 500 - r * sin(a)), CGPoint(x: 500 + r * cos(a), y: 500 + r * sin(a)))
+        }
+        let events = run(path)
+        #expect(abs(totalRotation(events) + 80) < 0.5)
+        #expect(!has(events, isMagnify))
+    }
+
+    @Test func briefTwoFingerTwistIsIgnored() {
+        // 兩指只碰 40 ms、轉了 16°
+        let path = (0...4).map { i -> (CGPoint, CGPoint) in
+            let a = -Double(i) * 4 * .pi / 180
+            return (CGPoint(x: 500 - 80 * cos(a), y: 500 - 80 * sin(a)), CGPoint(x: 500 + 80 * cos(a), y: 500 + 80 * sin(a)))
+        }
+        let events = run(path)
+        #expect(!has(events, isRotate))
+    }
+
+    @Test func pivotStartWithHandDriftWaitsBeforeScrolling() {
+        // 一指為軸旋轉，但一開始整隻手往右下漂移 15 點（方向不明確），之後才明顯轉動
+        let pivot = CGPoint(x: 500, y: 500)
+        var path: [(CGPoint, CGPoint)] = []
+        for i in 0...5 {
+            let k = Double(i) / 5
+            path.append((CGPoint(x: pivot.x + 10 * k, y: pivot.y + 5 * k), CGPoint(x: pivot.x + 150 + 18 * k, y: pivot.y + 12 * k)))
+        }
+        let shifted = CGPoint(x: pivot.x + 10, y: pivot.y + 5)
+        for i in 1...25 {
+            let a = (5 + Double(i) * 2) * .pi / 180
+            path.append((shifted, CGPoint(x: shifted.x + 160 * cos(a), y: shifted.y + 160 * sin(a))))
+        }
+        let events = run(path)
+        #expect(!has(events, isScroll))
+        #expect(has(events, isRotate))
+    }
+
+    @Test func secondFingerLandingAfterFirstMovesIsNotDrag() {
+        // 第一指落下後就移動 30 點，第二指 90 ms 後才落下，兩指再一起轉
+        var d = Driver()
+        for i in 0..<11 { d.frame([(1, 500 + Double(i) * 3, 500, true)]) }
+        for i in 1...25 {
+            let a = -Double(i) * 2 * .pi / 180
+            d.frame([(1, 530, 500, true), (2, 530 + 150 * cos(a), 500 + 150 * sin(a), true)])
+        }
+        d.frame([(1, 530, 500, false), (2, 530, 350, false)])
+        let events = d.take()
+        #expect(!events.contains { if case .mouseDown = $0 { true } else { false } })
+        #expect(has(events, isRotate))
     }
 
     @Test func slightlyDivergingFingersStillScroll() {
@@ -361,5 +426,89 @@ struct Driver {
         #expect(lines.contains("[手勢 dry-run] momentum ended：慣性共 dx=0.0 dy=35.0 點、3 筆、500 ms"))
         #expect(lines.contains("[手勢 dry-run] magnify ended：總倍率 ×1.210、0 ms"))
         #expect(lines.contains("[手勢 dry-run] rotate ended：共 15.0°（逆時針為正）、0 ms"))
+        output.send([.mouseDown(.left, .zero, clickCount: 1), .mouseDragged(.left, CGPoint(x: 30, y: 40)),
+                     .mouseUp(.left, CGPoint(x: 30, y: 40), clickCount: 1)])
+        #expect(lines.last == "[手勢 dry-run] mouseUp left (30,40) clicks=1（拖曳 50.0 點、1 筆、0 ms）")
+    }
+}
+
+/// 單指停留後再放第二指、誤觸
+@Suite struct HoldThenSecondFingerTests {
+    @Test func driftingHeldFingerThenSecondFingerRotates() {
+        // 軸心手指先放、停 0.4 秒期間慢慢漂移 30 點（75 點／秒），再放第二指以它為軸旋轉 50°
+        var d = Driver()
+        for i in 0...50 { d.frame([(1, 500 + Double(i) * 0.6, 500, true)]) }
+        let pivot = CGPoint(x: 530, y: 500)
+        for i in 0...25 {
+            let a = -Double(i) * 2 * .pi / 180
+            d.frame([(1, pivot.x, pivot.y, true), (2, pivot.x + 150 * cos(a), pivot.y + 150 * sin(a), true)])
+        }
+        d.frame([(1, pivot.x, pivot.y, false), (2, pivot.x, pivot.y - 150, false)])
+        let events = d.take()
+        #expect(!events.contains { if case .mouseDown = $0 { true } else { false } })
+        #expect(!events.contains { if case .scroll = $0 { true } else { false } })
+        let total = events.reduce(0.0) { if case .rotate(let deg, _) = $1 { $0 + deg } else { $0 } }
+        #expect(abs(total - 50) < 0.5)
+    }
+
+    @Test func driftBeforeSecondFingerDoesNotBiasScrollDecision() {
+        // 第一指先漂移 30 點，第二指落下後兩指一起往下捲 150 點 → 捲動，且只算兩指一起移動的部分
+        var d = Driver()
+        for i in 0...40 { d.frame([(1, 400 + Double(i) * 0.75, 300, true)]) }
+        for i in 0...20 {
+            let y = 300 + 7.5 * Double(i)
+            d.frame([(1, 430, y, true), (2, 530, y, true)])
+        }
+        d.frame([(1, 430, 450, false), (2, 530, 450, false)])
+        let events = d.take()
+        #expect(!events.contains { if case .mouseDown = $0 { true } else { false } })
+        let dx = events.reduce(0.0) { if case .scroll(let x, _, _) = $1 { $0 + x } else { $0 } }
+        let dy = events.reduce(0.0) { if case .scroll(_, let y, _) = $1 { $0 + y } else { $0 } }
+        #expect(abs(dx) < 0.001)
+        #expect(abs(dy - 150) < 0.001)
+    }
+
+    @Test func slowDeliberateDragStillDrags() {
+        // 慢慢拖 80 點（100 點／秒）：超過 40 點後才按下，按下位置仍是起點
+        var d = Driver()
+        for i in 0...100 { d.frame([(1, 200 + Double(i) * 0.8, 200, true)]) }
+        d.frame([(1, 280, 200, false)])
+        let events = d.take()
+        #expect(events.first == .mouseDown(.left, CGPoint(x: 200, y: 200), clickCount: 1))
+        #expect(events.last == .mouseUp(.left, CGPoint(x: 280, y: 200), clickCount: 1))
+    }
+
+    @Test func quickDragStartsAfterSettle() {
+        // 正常速度拖曳（1250 點／秒）：0.12 秒後就按下
+        var d = Driver()
+        var downTime: Double?
+        for i in 0...30 {
+            d.frame([(1, 200 + Double(i) * 10, 200, true)])
+            if downTime == nil, d.events.contains(where: { if case .mouseDown = $0 { true } else { false } }) { downTime = d.time }
+        }
+        #expect((downTime ?? 1) <= 0.13)
+    }
+
+    @Test func tooManyContactsCancelsGesture() {
+        // 兩指捲動中手掌碰到（一次多出 4 點）→ 捲動以 cancelled 結束，之後忽略到全部離開
+        var d = Driver()
+        for i in 0...10 { d.frame([(1, 400, 300 + Double(i) * 5, true), (2, 500, 300 + Double(i) * 5, true)]) }
+        let palm: [(UInt64, Double, Double, Bool)] = (3...6).map { ($0, 800 + Double($0) * 20, 900, true) }
+        d.frame([(1, 400, 360, true), (2, 500, 360, true)] + palm)
+        d.frame([(1, 400, 400, true), (2, 500, 400, true)] + palm)
+        d.frame(([(1, 400, 400, false), (2, 500, 400, false)] as [(UInt64, Double, Double, Bool)]) + palm.map { ($0.0, $0.1, $0.2, false) })
+        let events = d.take()
+        #expect(events.contains(.scroll(dx: 0, dy: 0, phase: .cancelled)))
+        #expect(events.last == .scroll(dx: 0, dy: 0, phase: .cancelled))
+        #expect(d.recognizer.isIdle)
+    }
+
+    @Test func brushingContactIsNotAFlick() {
+        // 兩點只碰 16 ms、移動 15 點就離開（手的其他部位擦過）→ 不送捲動
+        var d = Driver()
+        d.frame([(1, 400, 300, true), (2, 500, 300, true)])
+        d.frame([(1, 412, 308, true), (2, 512, 308, true)])
+        d.frame([(1, 412, 308, false), (2, 512, 308, false)])
+        #expect(!d.take().contains { if case .scroll = $0 { true } else { false } })
     }
 }
