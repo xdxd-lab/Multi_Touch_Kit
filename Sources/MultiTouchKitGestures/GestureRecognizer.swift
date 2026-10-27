@@ -56,6 +56,9 @@ public struct GestureRecognizer: Sendable {
         /// 縮放增益：送出的倍率 = (指距倍率)^magnifyExponent。觸控螢幕的張開範圍比觸控板大很多
         /// （MF156LR 兩指可從 50 點張到 600 點以上，×12），1 = 與指距等比例
         public var magnifyExponent: Double = 0.6
+        /// 旋轉增益：送出的角度 = 手指轉動角度 × rotationGain。觸控螢幕上兩指不容易轉大角度
+        /// （指甲、手腕角度），觸控板轉 45° 左右就能讓預覽程式轉 90°；1.5 讓手指轉 60° 等於送出 90°
+        public var rotationGain: Double = 1.5
         /// 捲動中一指暫時離開（接觸不穩）時，用剩下的手指繼續捲動的最長時間（秒）；期間重新落下的手指會接上
         public var scrollFingerLossTolerance: Double = 0.15
         /// 同時超過這麼多手指（通常是手掌或手的其他部位碰到）就取消目前手勢並忽略到所有手指離開
@@ -256,11 +259,11 @@ public struct GestureRecognizer: Sendable {
             }
             let turn = -normalizedDegrees(angle - lastAngle)
             if rotating {
-                if turn != 0 { out.append(.rotate(degrees: turn, phase: .changed)) }
+                if turn != 0 { out.append(.rotate(degrees: turn * configuration.rotationGain, phase: .changed)) }
             } else if angleUsable,
                       abs(normalizedDegrees(angle - commitAngle)) >= configuration.rotationThreshold * configuration.secondaryRotationFactor {
                 rotating = true
-                out.append(.rotate(degrees: turn, phase: .began))
+                out.append(.rotate(degrees: turn * configuration.rotationGain, phase: .began))
             }
             state = .transform(a: a, b: b, commitDistance: commitDistance, commitAngle: commitAngle,
                                lastDistance: d, lastAngle: angle, magnifying: magnifying, rotating: rotating)
@@ -425,7 +428,7 @@ public struct GestureRecognizer: Sendable {
             guard magnifying || rotating else { return [] }
             var out: [GestureEvent] = [.pointer(c0)]
             if magnifying { out.append(.magnify(magnification(d1 / d0), phase: .began)) }
-            if rotating { out.append(.rotate(degrees: -turnDegrees, phase: .began)) }
+            if rotating { out.append(.rotate(degrees: -turnDegrees * configuration.rotationGain, phase: .began)) }
             state = .transform(a: a, b: b, commitDistance: d1, commitAngle: angle(pa, pb),
                                lastDistance: d1, lastAngle: angle(pa, pb), magnifying: magnifying, rotating: rotating)
             return out

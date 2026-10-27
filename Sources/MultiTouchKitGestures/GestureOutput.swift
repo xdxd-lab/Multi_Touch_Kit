@@ -62,8 +62,11 @@ public enum SwipeShortcut: Sendable, Equatable, CustomStringConvertible {
     }
 }
 
-/// dry-run：只把事件交給 log，不送出。連續手勢不逐筆印出，結束時印出累計量（位移、倍率、角度、持續時間）。
+/// 把手勢摘要交給 log，不送出（dry-run；或與 CGEventGestureOutput 一起用 CombinedGestureOutput 記錄實際送出的手勢）。
+/// 連續手勢不逐筆印出，結束時印出累計量（位移、倍率、角度、持續時間）。
 public final class LoggingGestureOutput: GestureOutput, @unchecked Sendable {
+    /// 每行開頭的標籤，例如「手勢 dry-run」→「[手勢 dry-run] …」
+    public let label: String
     private let log: (String) -> Void
     private let swipeMode: SwipeMode
     private let clock: () -> Double
@@ -90,8 +93,10 @@ public final class LoggingGestureOutput: GestureOutput, @unchecked Sendable {
     }
 
     /// - Parameter clock: 目前時間（秒），用來計算持續時間；測試時可替換
-    public init(swipeMode: SwipeMode = .keys, clock: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime },
+    public init(label: String = "手勢 dry-run", swipeMode: SwipeMode = .keys,
+                clock: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime },
                 log: @escaping (String) -> Void) {
+        self.label = label
         self.swipeMode = swipeMode
         self.clock = clock
         self.log = log
@@ -105,31 +110,31 @@ public final class LoggingGestureOutput: GestureOutput, @unchecked Sendable {
             switch e {
             case .mouseDown(_, let p, _):
                 mouseDown = (p, now, 0)
-                log("[手勢 dry-run] \(e)")
+                log("[\(label)] \(e)")
             case .mouseDragged:
                 mouseDown?.drags += 1
             case .mouseUp(_, let p, _):
                 // 拖曳不逐筆印出，放開時標明拖曳距離，避免和點擊混淆
                 if let down = mouseDown, down.drags > 0 {
                     let distance = hypot(p.x - down.point.x, p.y - down.point.y)
-                    log("[手勢 dry-run] \(e)（拖曳 \(f(distance)) 點、\(down.drags) 筆、\(ms(down.time))）")
+                    log("[\(label)] \(e)（拖曳 \(f(distance)) 點、\(down.drags) 筆、\(ms(down.time))）")
                 } else {
-                    log("[手勢 dry-run] \(e)")
+                    log("[\(label)] \(e)")
                 }
                 mouseDown = nil
             case .scroll(let dx, let dy, let phase):
                 if phase == .began { scroll.reset(at: now) }
                 scroll.add(dx, dy)
-                if phase == .began { log("[手勢 dry-run] \(e)") }
+                if phase == .began { log("[\(label)] \(e)") }
                 if phase == .ended || phase == .cancelled {
-                    log("[手勢 dry-run] scroll \(phase)：共 dx=\(f(scroll.dx)) dy=\(f(scroll.dy)) 點、\(scroll.count) 筆、\(ms(scroll.start))")
+                    log("[\(label)] scroll \(phase)：共 dx=\(f(scroll.dx)) dy=\(f(scroll.dy)) 點、\(scroll.count) 筆、\(ms(scroll.start))")
                 }
             case .momentum(let dx, let dy, let phase):
                 if phase == .began { momentum.reset(at: now) }
                 momentum.add(dx, dy)
-                if phase == .began { log("[手勢 dry-run] \(e)") }
+                if phase == .began { log("[\(label)] \(e)") }
                 if phase == .ended {
-                    log("[手勢 dry-run] momentum ended：慣性共 dx=\(f(momentum.dx)) dy=\(f(momentum.dy)) 點、\(momentum.count) 筆、\(ms(momentum.start))")
+                    log("[\(label)] momentum ended：慣性共 dx=\(f(momentum.dx)) dy=\(f(momentum.dy)) 點、\(momentum.count) 筆、\(ms(momentum.start))")
                 }
             case .magnify(let m, let phase):
                 if phase == .began {
@@ -137,9 +142,9 @@ public final class LoggingGestureOutput: GestureOutput, @unchecked Sendable {
                     magnifyStart = now
                 }
                 magnifyScale *= 1 + m
-                if phase == .began { log("[手勢 dry-run] \(e)") }
+                if phase == .began { log("[\(label)] \(e)") }
                 if phase == .ended || phase == .cancelled {
-                    log("[手勢 dry-run] magnify \(phase)：總倍率 ×\(String(format: "%.3f", magnifyScale))、\(ms(magnifyStart))")
+                    log("[\(label)] magnify \(phase)：總倍率 ×\(String(format: "%.3f", magnifyScale))、\(ms(magnifyStart))")
                 }
             case .rotate(let degrees, let phase):
                 if phase == .began {
@@ -147,19 +152,32 @@ public final class LoggingGestureOutput: GestureOutput, @unchecked Sendable {
                     rotationStart = now
                 }
                 rotation += degrees
-                if phase == .began { log("[手勢 dry-run] \(e)") }
+                if phase == .began { log("[\(label)] \(e)") }
                 if phase == .ended || phase == .cancelled {
-                    log("[手勢 dry-run] rotate \(phase)：共 \(f(rotation))°（逆時針為正）、\(ms(rotationStart))")
+                    log("[\(label)] rotate \(phase)：共 \(f(rotation))°（逆時針為正）、\(ms(rotationStart))")
                 }
             case .swipe(_, _, _, _, .changed):
                 continue
             case .swipe(let axis, let progress, let velocity, _, .ended) where swipeMode == .keys:
                 let shortcut = SwipeShortcut.resolve(axis: axis, progress: progress, velocity: velocity)
-                log("[手勢 dry-run] \(e) → \(shortcut.map(\.description) ?? "不觸發")")
+                log("[\(label)] \(e) → \(shortcut.map(\.description) ?? "不觸發")")
             default:
-                log("[手勢 dry-run] \(e)")
+                log("[\(label)] \(e)")
             }
         }
+    }
+}
+
+/// 依序交給多個送出端（例如實際送出＋記錄）
+public final class CombinedGestureOutput: GestureOutput, @unchecked Sendable {
+    public let outputs: [GestureOutput]
+
+    public init(_ outputs: [GestureOutput]) {
+        self.outputs = outputs
+    }
+
+    public func send(_ events: [GestureEvent]) {
+        for o in outputs { o.send(events) }
     }
 }
 

@@ -19,6 +19,9 @@ struct ServerOptions {
     var gesturesDryRun = false
     var gesturesSwipe = SwipeMode.keys
     var gesturesExclude: Set<String> = []
+    var gesturesLog = false
+    var gesturesRotationGain: Double?
+    var gesturesMagnifyExponent: Double?
     var display = DisplaySelector.environment ?? .automatic
 
     static let usage = """
@@ -44,6 +47,9 @@ struct ServerOptions {
       --gestures-dry-run  只辨識並印出手勢、不送事件（隱含 --gestures；--simulate 時一律為 dry-run）
       --gestures-swipe dock|keys  三／四指滑動的送出方式（預設 keys：Control＋方向鍵；dock：跟手的 Dock 手勢，實驗性）
       --gestures-exclude BUNDLE_ID[,…]  這些 App 在前景時暫停手勢（例：com.unity3d.UnityEditor5.x）
+      --gestures-log    送出事件時也印出手勢摘要（與 dry-run 相同格式，標籤為 [手勢]）
+      --gestures-rotation-gain X     旋轉增益（送出角度 = 手指角度 × X，預設 1.5）
+      --gestures-magnify-exponent X  縮放增益（送出倍率 = 指距倍率^X，預設 0.6；1 = 等比例）
     """
 
     static func parse(_ arguments: [String]) -> ServerOptions {
@@ -101,6 +107,13 @@ struct ServerOptions {
             case "--gestures-exclude":
                 guard let list = it.next(), !list.isEmpty else { fail("--gestures-exclude 需要 bundle ID") }
                 o.gesturesExclude.formUnion(list.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+            case "--gestures-log": o.gesturesLog = true
+            case "--gestures-rotation-gain":
+                guard let v = it.next().flatMap(Double.init), v > 0 else { fail("--gestures-rotation-gain 需要大於 0 的數字") }
+                o.gesturesRotationGain = v
+            case "--gestures-magnify-exponent":
+                guard let v = it.next().flatMap(Double.init), v > 0 else { fail("--gestures-magnify-exponent 需要大於 0 的數字") }
+                o.gesturesMagnifyExponent = v
             case "--help", "-h":
                 print(usage)
                 exit(0)
@@ -108,8 +121,9 @@ struct ServerOptions {
                 fail("未知選項：\(a)")
             }
         }
-        if !o.gestures && (o.gesturesSwipe != .keys || !o.gesturesExclude.isEmpty) {
-            print("注意：--gestures-swipe／--gestures-exclude 需搭配 --gestures 才會生效")
+        if !o.gestures && (o.gesturesSwipe != .keys || !o.gesturesExclude.isEmpty || o.gesturesLog
+                           || o.gesturesRotationGain != nil || o.gesturesMagnifyExponent != nil) {
+            print("注意：--gestures-* 選項需搭配 --gestures 才會生效")
         }
         return o
     }
@@ -243,7 +257,10 @@ final class ServerRuntime: @unchecked Sendable {
         if dryRun {
             output = LoggingGestureOutput(swipeMode: options.gesturesSwipe) { print($0) }
         } else {
-            output = CGEventGestureOutput(swipeMode: options.gesturesSwipe)
+            let events = CGEventGestureOutput(swipeMode: options.gesturesSwipe)
+            output = options.gesturesLog
+                ? CombinedGestureOutput([events, LoggingGestureOutput(label: "手勢", swipeMode: options.gesturesSwipe) { print($0) }])
+                : events
             if !CGEventGestureOutput.isTrusted(prompt: true) {
                 print("""
                 手勢：尚未取得「輔助使用」權限，系統會丟棄合成的事件。
@@ -253,10 +270,15 @@ final class ServerRuntime: @unchecked Sendable {
         }
         var configuration = GestureController.Configuration()
         configuration.excludedBundleIDs = options.gesturesExclude
+        if let v = options.gesturesRotationGain { configuration.recognizer.rotationGain = v }
+        if let v = options.gesturesMagnifyExponent { configuration.recognizer.magnifyExponent = v }
         let controller = GestureController(configuration: configuration, queue: queue, output: output)
         MainActor.assumeIsolated { controller.startObservingFrontmostApp() }
         gestures = controller
         var notes = [dryRun ? "dry-run" : "送出系統事件", "三／四指滑動：\(options.gesturesSwipe.rawValue)"]
+        if options.gesturesLog && !dryRun { notes.append("記錄手勢") }
+        notes.append(String(format: "旋轉增益 %.2g、縮放增益 %.2g", configuration.recognizer.rotationGain,
+                            configuration.recognizer.magnifyExponent))
         if !options.gesturesExclude.isEmpty { notes.append("排除 \(options.gesturesExclude.sorted().joined(separator: ", "))") }
         print("手勢合成：" + notes.joined(separator: "、"))
     }

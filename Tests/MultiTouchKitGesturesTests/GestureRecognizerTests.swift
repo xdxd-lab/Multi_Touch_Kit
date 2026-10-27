@@ -5,7 +5,12 @@ import Testing
 
 /// 以 125 Hz（8 ms）餵 frame 的測試輔助
 struct Driver {
-    var recognizer = GestureRecognizer()
+    /// 角度測試以手指的實際幾何計算，旋轉增益設為 1（增益另有 rotationGainScalesOutput 測試）
+    var recognizer: GestureRecognizer = {
+        var c = GestureRecognizer.Configuration()
+        c.rotationGain = 1
+        return GestureRecognizer(configuration: c)
+    }()
     var time = 0.0
     var events: [GestureEvent] = []
 
@@ -589,5 +594,32 @@ struct Driver {
         let dx = events.reduce(0.0) { if case .scroll(let v, _, _) = $1 { $0 + v } else { $0 } }
         #expect(dx < 300)
         #expect(!events.contains { if case .mouseDown = $0 { true } else { false } })
+    }
+}
+
+@Suite struct GainTests {
+    @Test func rotationGainScalesOutput() {
+        var d = Driver()
+        d.recognizer.configuration = GestureRecognizer.Configuration()   // 預設增益 1.5
+        for i in 0...30 {
+            let a = -Double(i) * 2 * .pi / 180
+            d.frame([(1, 500 - 100 * cos(a), 500 - 100 * sin(a), true), (2, 500 + 100 * cos(a), 500 + 100 * sin(a), true)])
+        }
+        d.frame([(1, 500, 600, false), (2, 500, 400, false)])
+        let total = d.take().reduce(0.0) { if case .rotate(let deg, _) = $1 { $0 + deg } else { $0 } }
+        #expect(abs(total - 90) < 0.5)   // 手指轉 60° → 送出 90°
+    }
+
+    @Test func combinedOutputLogsWhileSending() {
+        final class Recorder: GestureOutput, @unchecked Sendable {
+            var events: [GestureEvent] = []
+            func send(_ e: [GestureEvent]) { events += e }
+        }
+        nonisolated(unsafe) var lines: [String] = []
+        let recorder = Recorder()
+        let output = CombinedGestureOutput([recorder, LoggingGestureOutput(label: "手勢") { lines.append($0) }])
+        output.send([.mouseDown(.left, .zero, clickCount: 1), .mouseUp(.left, .zero, clickCount: 1)])
+        #expect(recorder.events.count == 2)
+        #expect(lines == ["[手勢] mouseDown left (0,0) clicks=1", "[手勢] mouseUp left (0,0) clicks=1"])
     }
 }
