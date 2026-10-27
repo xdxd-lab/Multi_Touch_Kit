@@ -71,8 +71,10 @@ public struct GestureRecognizer: Sendable {
         public var momentumMinimumSpeed: Double = 150
         /// 慣性速度低於此值時停止（點／秒）
         public var momentumStopSpeed: Double = 20
-        /// 慣性衰減率（每秒，速度 × e^(-friction·t)）
-        public var momentumFriction: Double = 3.5
+        /// 慣性衰減率（每秒，速度 × e^(-friction·t)）。慣性總距離 ≈ 放開速度 ÷ friction；
+        /// 初速一律等於手指放開時的速度（銜接自然），只用衰減調整滑行距離。
+        /// 2.8 = 原本 3.5 的 1/1.25，使用者要求慣性多約 25%
+        public var momentumFriction: Double = 2.8
         /// 計算放開速度時取最近多久的位移（秒）
         public var velocityWindow: Double = 0.1
 
@@ -357,20 +359,21 @@ public struct GestureRecognizer: Sendable {
         guard let first = points.first else { return [] }
         // 長按期間的慢速漂移（未達拖曳條件）仍算長按
         if fingers == 1, duration >= configuration.longPressDuration, maxMovement <= configuration.slowDragSlop {
-            return [.mouseDown(.right, first, clickCount: 1), .mouseUp(.right, first, clickCount: 1)]
+            return [.pointer(first), .mouseDown(.right, first, clickCount: 1), .mouseUp(.right, first, clickCount: 1)]
         }
         guard maxMovement <= configuration.tapSlop else { return [] }
         switch fingers {
         case 1 where duration >= configuration.longPressDuration:
             // 長按：放開時才確定為右鍵（按住期間移動或加入第二指都會變成其他手勢）
-            return [.mouseDown(.right, first, clickCount: 1), .mouseUp(.right, first, clickCount: 1)]
+            return [.pointer(first), .mouseDown(.right, first, clickCount: 1), .mouseUp(.right, first, clickCount: 1)]
         case 1:
             let n = clickCount(at: first, time: time)
             lastClick = (time, first, n)
             return [.mouseDown(.left, first, clickCount: n), .mouseUp(.left, first, clickCount: n)]
         case 2 where duration <= configuration.twoFingerTapMaxDuration:
+            // 右鍵選單以兩指中點為基準：先把游標移過去，選單出現在游標位置
             let c = centroid(Array(points.prefix(2)))
-            return [.mouseDown(.right, c, clickCount: 1), .mouseUp(.right, c, clickCount: 1)]
+            return [.pointer(c), .mouseDown(.right, c, clickCount: 1), .mouseUp(.right, c, clickCount: 1)]
         default:
             return []
         }

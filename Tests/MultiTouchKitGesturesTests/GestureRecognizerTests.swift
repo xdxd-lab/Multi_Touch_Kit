@@ -93,7 +93,7 @@ struct Driver {
         for _ in 0..<90 { d.frame([(1, 300, 300, true)]) }   // 按住 0.72 秒
         #expect(d.take().isEmpty)                             // 按住期間不送事件
         d.frame([(1, 301, 300, false)])
-        #expect(d.take() == [.mouseDown(.right, CGPoint(x: 300, y: 300), clickCount: 1),
+        #expect(d.take() == [.pointer(CGPoint(x: 300, y: 300)), .mouseDown(.right, CGPoint(x: 300, y: 300), clickCount: 1),
                              .mouseUp(.right, CGPoint(x: 300, y: 300), clickCount: 1)])
         #expect(d.recognizer.isIdle)
         #expect(!d.recognizer.needsTick)
@@ -129,7 +129,7 @@ struct Driver {
         var d = Driver()
         for i in 0..<90 { d.frame([(1, 300 + Double(i) * 0.3, 300, true)]) }  // 漂移 27 點
         d.frame([(1, 327, 300, false)])
-        #expect(d.take().first == .mouseDown(.right, CGPoint(x: 300, y: 300), clickCount: 1))
+        #expect(d.take().dropFirst().first == .mouseDown(.right, CGPoint(x: 300, y: 300), clickCount: 1))
     }
 
     @Test func twoFingerTapIsRightClickAtCentroid() {
@@ -138,7 +138,8 @@ struct Driver {
         d.frame([(1, 100, 100, true), (2, 200, 100, true)], dt: 0.02)
         d.frame([(1, 100, 100, false), (2, 200, 100, true)], dt: 0.08)
         d.frame([(2, 200, 100, false)])
-        #expect(d.take() == [.mouseDown(.right, CGPoint(x: 150, y: 100), clickCount: 1),
+        // 兩指中點（游標先移過去）
+        #expect(d.take() == [.pointer(CGPoint(x: 150, y: 100)), .mouseDown(.right, CGPoint(x: 150, y: 100), clickCount: 1),
                              .mouseUp(.right, CGPoint(x: 150, y: 100), clickCount: 1)])
     }
 
@@ -621,5 +622,23 @@ struct Driver {
         output.send([.mouseDown(.left, .zero, clickCount: 1), .mouseUp(.left, .zero, clickCount: 1)])
         #expect(recorder.events.count == 2)
         #expect(lines == ["[手勢] mouseDown left (0,0) clicks=1", "[手勢] mouseUp left (0,0) clicks=1"])
+    }
+}
+
+@Suite struct MomentumDistanceTests {
+    func glide(friction: Double) -> Double {
+        var d = Driver()
+        d.recognizer.configuration.momentumFriction = friction
+        d.twoFingers(from: CGPoint(x: 100, y: 100), CGPoint(x: 200, y: 100),
+                     to: CGPoint(x: 100, y: 300), CGPoint(x: 200, y: 300), steps: 10)
+        d.tick(for: 5)
+        return d.take().reduce(0.0) { if case .momentum(_, let dy, _) = $1 { $0 + dy } else { $0 } }
+    }
+
+    @Test func defaultGlidesAbout25PercentFartherThanBefore() {
+        // 放開速度 2500 點／秒：總距離 ≈ v / friction（扣掉停止速度以下的尾巴）
+        let before = glide(friction: 3.5)
+        let now = glide(friction: GestureRecognizer.Configuration().momentumFriction)
+        #expect(abs(now / before - 1.25) < 0.02)
     }
 }

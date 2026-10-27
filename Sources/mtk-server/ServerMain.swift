@@ -22,6 +22,7 @@ struct ServerOptions {
     var gesturesLog = false
     var gesturesRotationGain: Double?
     var gesturesMagnifyExponent: Double?
+    var gesturesMomentumGain: Double?
     var display = DisplaySelector.environment ?? .automatic
 
     static let usage = """
@@ -50,6 +51,7 @@ struct ServerOptions {
       --gestures-log    送出事件時也印出手勢摘要（與 dry-run 相同格式，標籤為 [手勢]）
       --gestures-rotation-gain X     旋轉增益（送出角度 = 手指角度 × X，預設 1.5）
       --gestures-magnify-exponent X  縮放增益（送出倍率 = 指距倍率^X，預設 0.6；1 = 等比例）
+      --gestures-momentum-gain X     捲動慣性距離倍數（預設 1；2 = 滑行約兩倍遠）
     """
 
     static func parse(_ arguments: [String]) -> ServerOptions {
@@ -114,6 +116,9 @@ struct ServerOptions {
             case "--gestures-magnify-exponent":
                 guard let v = it.next().flatMap(Double.init), v > 0 else { fail("--gestures-magnify-exponent 需要大於 0 的數字") }
                 o.gesturesMagnifyExponent = v
+            case "--gestures-momentum-gain":
+                guard let v = it.next().flatMap(Double.init), v > 0 else { fail("--gestures-momentum-gain 需要大於 0 的數字") }
+                o.gesturesMomentumGain = v
             case "--help", "-h":
                 print(usage)
                 exit(0)
@@ -122,7 +127,7 @@ struct ServerOptions {
             }
         }
         if !o.gestures && (o.gesturesSwipe != .keys || !o.gesturesExclude.isEmpty || o.gesturesLog
-                           || o.gesturesRotationGain != nil || o.gesturesMagnifyExponent != nil) {
+                           || o.gesturesRotationGain != nil || o.gesturesMagnifyExponent != nil || o.gesturesMomentumGain != nil) {
             print("注意：--gestures-* 選項需搭配 --gestures 才會生效")
         }
         return o
@@ -272,13 +277,15 @@ final class ServerRuntime: @unchecked Sendable {
         configuration.excludedBundleIDs = options.gesturesExclude
         if let v = options.gesturesRotationGain { configuration.recognizer.rotationGain = v }
         if let v = options.gesturesMagnifyExponent { configuration.recognizer.magnifyExponent = v }
+        // 慣性距離 ≈ 速度 ÷ friction，所以距離倍數 = friction 的倒數倍
+        if let v = options.gesturesMomentumGain { configuration.recognizer.momentumFriction /= v }
         let controller = GestureController(configuration: configuration, queue: queue, output: output)
         MainActor.assumeIsolated { controller.startObservingFrontmostApp() }
         gestures = controller
         var notes = [dryRun ? "dry-run" : "送出系統事件", "三／四指滑動：\(options.gesturesSwipe.rawValue)"]
         if options.gesturesLog && !dryRun { notes.append("記錄手勢") }
-        notes.append(String(format: "旋轉增益 %.2g、縮放增益 %.2g", configuration.recognizer.rotationGain,
-                            configuration.recognizer.magnifyExponent))
+        notes.append(String(format: "旋轉增益 %.2g、縮放增益 %.2g、慣性倍數 %.2g", configuration.recognizer.rotationGain,
+                            configuration.recognizer.magnifyExponent, options.gesturesMomentumGain ?? 1))
         if !options.gesturesExclude.isEmpty { notes.append("排除 \(options.gesturesExclude.sorted().joined(separator: ", "))") }
         print("手勢合成：" + notes.joined(separator: "、"))
     }

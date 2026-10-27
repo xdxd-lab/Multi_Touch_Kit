@@ -26,8 +26,8 @@ scripts/install-server-agent.sh --gestures
 |---|---|---|
 | 一指點擊 | 左鍵點擊（連點可雙擊、三擊） | 公開 API（CGEvent 滑鼠） |
 | 一指移動 | 左鍵拖曳（移動超過約 14 點才按下，按下位置是手指起點） | 公開 API |
-| 一指按住 0.6 秒以上再放開 | 右鍵點擊（放開時才確定；按住期間移動就變成拖曳，第二指落下就是兩指手勢） | 公開 API |
-| 兩指點擊 | 右鍵點擊（兩指中點） | 公開 API |
+| 一指按住 0.6 秒以上再放開 | 右鍵點擊（以手指落下位置為基準、游標先移過去；放開時才確定；按住期間移動就變成拖曳，第二指落下就是兩指手勢） | 公開 API |
+| 兩指點擊 | 右鍵點擊：以兩指**落下位置的中點**為基準，先把游標移過去再送右鍵，選單出現在該點 | 公開 API |
 | 兩指平移 | 捲動，內容跟著手指走；放開時依速度產生慣性捲動 | 公開 API（像素捲動＋scroll／momentum phase） |
 | 兩指開合 | 縮放（觸控板的 pinch） | **未公開** gesture 事件 |
 | 兩指轉動（兩指繞中心轉，或一指為軸另一指繞著轉） | 旋轉 | **未公開** gesture 事件 |
@@ -75,6 +75,7 @@ ILITEK-TP 的 HID 描述子每個觸點只有 Contact ID、Tip Switch、X、Y，
 | `--gestures-log` | 實際送出事件時也印出手勢摘要（格式與 dry-run 相同，標籤為 `[手勢]`），用來對照實機回饋；預設不印 |
 | `--gestures-rotation-gain X` | 旋轉增益（預設 1.5） |
 | `--gestures-magnify-exponent X` | 縮放增益指數（預設 0.6；1 = 與指距等比例） |
+| `--gestures-momentum-gain X` | 捲動慣性距離倍數（預設 1；2 = 滑行約兩倍遠、時間也較長；實作為衰減率 ÷ X） |
 | `--simulate-pattern gestures` | 模擬觸控改為每 12 秒依序做出所有手勢（隱含 `--simulate`），用來驗證辨識；`drums` 為預設模式 |
 
 `--simulate`／`--simulate-pattern` 時**一律為 dry-run**，啟動時 log 會說明（模擬觸控會在桌面上到處點擊）。
@@ -138,7 +139,7 @@ manager.frameHandler = { gestures.handle($0) }
 ### 送出方法
 
 - 滑鼠：`CGEvent(mouseEventSource:mouseType:…)`，`mouseEventClickState` 帶連點次數，送到 `cghidEventTap`（會移動游標）。
-- 捲動：`CGEvent(scrollWheelEvent2Source:units: .pixel…)`，`scrollWheelEventIsContinuous = 1`，`scrollWheelEventScrollPhase`（1 began、2 changed、4 ended、8 cancelled）與 `scrollWheelEventMomentumPhase`（1 begin、2 continue、3 end）。這些欄位是公開的，App 會看到與觸控板相同的 `NSEvent.phase`／`momentumPhase`、`hasPreciseScrollingDeltas = true`。慣性由本專案計算（速度 × e^(−3.5 t)，低於 20 點／秒停止）。
+- 捲動：`CGEvent(scrollWheelEvent2Source:units: .pixel…)`，`scrollWheelEventIsContinuous = 1`，`scrollWheelEventScrollPhase`（1 began、2 changed、4 ended、8 cancelled）與 `scrollWheelEventMomentumPhase`（1 begin、2 continue、3 end）。這些欄位是公開的，App 會看到與觸控板相同的 `NSEvent.phase`／`momentumPhase`、`hasPreciseScrollingDeltas = true`。慣性由本專案計算：初速 = 手指放開時的速度，速度 × e^(−2.8 t) 衰減，低於 20 點／秒停止；總滑行距離約為放開速度 ÷ 2.8（例如 1000 點／秒放開約滑 350 點、1.4 秒）。2.8 是依使用者回饋由 3.5 調低（多約 25%）。初速不放大，以免放開瞬間速度跳動。
 - 縮放／旋轉：未公開 gesture 事件。欄位 55（事件類型）= 29（NSEventTypeGesture）、110（IOHIDEventType）= 8 Zoom／5 Rotation、132 = IOHIDEventPhase（1／2／4／8）、113 = 放大量、114 = 角度，送到 `cgSessionEventTap`。
 - Dock swipe（`dock` 模式）：欄位 55 = 30（DockControl）、110 = 23（DockSwipe）、123／165 = 方向（1 水平、2 垂直）、124／135 = 累積進度、129／130 = 放開速度、41 = 33231，並附一個 type 29 的伴隨事件。
 - 快速鍵（`keys` 模式）：`CGEvent(keyboardEventSource:virtualKey:keyDown:)`，Control＋方向鍵（123–126）。
@@ -154,6 +155,7 @@ manager.frameHandler = { gestures.handle($0) }
 | 旋轉（未公開） | ✅ 收到 `NSEvent.rotate`，`rotation` 與 `phase` 正確 | 同上 |
 | 左鍵／右鍵按下放開、clickCount | ✅ 收到 | 同上 |
 | 手勢辨識（全部手勢） | ✅ `--simulate-pattern gestures` 一個週期全部辨識正確，座標落在 MF156LR（全域 x 1920–3840） | dry-run |
+| 實機送出（第 2 次回饋） | ✅ Finder 點擊良好；兩指右鍵基準改為游標先移到兩指中點；慣性距離 +25%（衰減 3.5 → 2.8） | 使用者回饋 |
 | 實機送出（`--gestures`，Finder／Safari／預覽／滑動） | ✅ 可操作；預覽程式旋轉需要轉很多 → 新增旋轉增益 1.5；三指與四指行為相同（設計如此，見上） | 使用者回饋 |
 | 實機 dry-run（第 3 輪） | ✅ 5 次旋轉全對（兩種轉法）、縮放手感合理（×0.33–×3.3）、正常／慢速拖曳；❌ 停留後被提早送右鍵、一次捏合先判成旋轉、兩指拖動中途斷觸只捲了 14 點 → 已修正（放開才確定右鍵、旋轉主導條件、捲動斷觸容忍），待第 4 輪確認 | 同上 |
 | 實機 dry-run（第 2 輪） | ✅ 繞中心旋轉、捏合不再帶出旋轉、甩動＋慣性 1488 點；❌ 旋轉時帶出 ×0.85 縮放、先放軸心指再旋轉被當成拖曳／捲動、短暫觸碰判成旋轉 → 已修正（第二指起點、慢速漂移、比例門檻、最短接觸），待第 3 輪確認 | 同上 |
@@ -174,4 +176,4 @@ manager.frameHandler = { gestures.handle($0) }
 
 ## 參數調整
 
-門檻定義在 `GestureRecognizer.Configuration`（單位為點；MF156LR 約 5.6 點／mm）：點擊容許位移 14、等待其他手指 50 ms、拖曳等待 0.12 s（慢速漂移 < 150 點／秒時拖曳門檻 40）、長按 0.6 s、兩指點擊上限 0.35 s、雙擊間隔 0.45 s、捲動起始 12（指間相對位移 < 0.5 倍重心位移；0.5–0.8 倍時等到 24 點）、縮放起始 30、旋轉起始 12°（指間距 ≥ 60）、兩指最短接觸 80 ms（縮放／旋轉）、次要縮放 ×1.35／次要旋轉 24°、旋轉主導 切向 ≥ 25 點且 ≥ 1.5 倍徑向、捲動斷觸容忍 0.15 s、旋轉增益 1.5、縮放增益 0.6、最多 5 點、多指滑動起始 50、滑動全程 450、慣性最低速度 150 點／秒。旋轉增益與縮放增益有命令列選項，其他門檻目前只能在程式中設定。
+門檻定義在 `GestureRecognizer.Configuration`（單位為點；MF156LR 約 5.6 點／mm）：點擊容許位移 14、等待其他手指 50 ms、拖曳等待 0.12 s（慢速漂移 < 150 點／秒時拖曳門檻 40）、長按 0.6 s、兩指點擊上限 0.35 s、雙擊間隔 0.45 s、捲動起始 12（指間相對位移 < 0.5 倍重心位移；0.5–0.8 倍時等到 24 點）、縮放起始 30、旋轉起始 12°（指間距 ≥ 60）、兩指最短接觸 80 ms（縮放／旋轉）、次要縮放 ×1.35／次要旋轉 24°、旋轉主導 切向 ≥ 25 點且 ≥ 1.5 倍徑向、捲動斷觸容忍 0.15 s、旋轉增益 1.5、縮放增益 0.6、最多 5 點、多指滑動起始 50、滑動全程 450、慣性最低速度 150 點／秒、慣性衰減 2.8／秒。旋轉增益與縮放增益有命令列選項，其他門檻目前只能在程式中設定。
