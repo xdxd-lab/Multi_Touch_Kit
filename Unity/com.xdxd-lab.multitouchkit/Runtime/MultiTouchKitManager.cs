@@ -42,7 +42,9 @@ namespace MultiTouchKit
         [Tooltip("只使用指定的 Product ID（0 = 不限）")]
         public int productId;
         public ScreenMappingMode screenMapping = ScreenMappingMode.FullScreen;
-        [Tooltip("KeyWindow 模式：觸控螢幕的 CGDirectDisplayID（0 = 主螢幕）")]
+        [Tooltip("觸控螢幕所在的顯示器（KeyWindow 模式使用）。空白 = 自動依面板尺寸挑選；例：edid:6474:aa15、name:Sculptor,size:1920x1080")]
+        public string displaySelector = "";
+        [Tooltip("直接指定 CGDirectDisplayID（非 0 時優先於 displaySelector；重新接線後可能改變）")]
         public uint displayId;
         [Tooltip("把觸控送進 Input System 的 Touchscreen 裝置")]
         public bool feedInputSystem = true;
@@ -115,6 +117,7 @@ namespace MultiTouchKit
                 return;
             }
             m_Transport = created;
+            ApplyDisplaySelector();
             MultiTouchClock.Sample();
 #if MTK_INPUT_SYSTEM
             if (feedInputSystem)
@@ -179,6 +182,18 @@ namespace MultiTouchKit
                 Dispatch(touch);
             }
         }
+
+        void ApplyDisplaySelector()
+        {
+            if (!MultiTouchKitNative.IsAvailable) return;
+            if (MultiTouchKitNative.mtk_set_display(displaySelector) != MultiTouchKitNative.Ok)
+                Debug.LogError($"[MultiTouchKit] displaySelector 格式錯誤：{displaySelector}");
+        }
+
+        /// <summary>目前對應到的顯示器 CGDirectDisplayID（0 = 找不到或不支援）。</summary>
+        public uint TouchDisplayId => MultiTouchKitNative.IsAvailable
+            ? (displayId != 0 ? displayId : MultiTouchKitNative.mtk_touch_display_id())
+            : 0;
 
         /// <summary>面板正規化座標 → Unity 螢幕像素座標（原點左下）。</summary>
         public Vector2 ToScreen(Vector2 normalized)

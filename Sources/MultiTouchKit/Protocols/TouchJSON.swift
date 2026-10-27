@@ -26,9 +26,20 @@ public enum TouchJSON {
         "{\"type\":\"device\",\"v\":\(protocolVersion),\"event\":\"\(escape(event))\",\"device\":\(deviceObject(info))}"
     }
 
-    public static func hello(server: String, devices: [MultiTouchDeviceInfo]) -> String {
-        "{\"type\":\"hello\",\"v\":\(protocolVersion),\"server\":\"\(escape(server))\",\"version\":\"\(MultiTouchKitVersion.string)\",\"devices\":["
-            + devices.map(deviceObject).joined(separator: ",") + "]}"
+    public static func hello(server: String, devices: [MultiTouchDeviceInfo], display: DisplayInfo? = nil) -> String {
+        var s = "{\"type\":\"hello\",\"v\":\(protocolVersion),\"server\":\"\(escape(server))\",\"version\":\"\(MultiTouchKitVersion.string)\",\"devices\":["
+            + devices.map(deviceObject).joined(separator: ",") + "]"
+        if let display { s += ",\"display\":" + displayObject(display) }
+        return s + "}"
+    }
+
+    /// 觸控螢幕所在的顯示器。bounds 為全域 Quartz 座標（點，原點在主螢幕左上、y 向下）
+    public static func displayObject(_ d: DisplayInfo) -> String {
+        var s = "{\"id\":\(d.id)"
+        if let name = d.name { s += ",\"name\":\"\(escape(name))\"" }
+        s += ",\"edid\":\"\(d.edid)\",\"uuid\":\"\(escape(d.uuid))\",\"main\":\(d.isMain)"
+        s += String(format: ",\"bounds\":[%.0f,%.0f,%.0f,%.0f]", d.bounds.origin.x, d.bounds.origin.y, d.bounds.width, d.bounds.height)
+        return s + ",\"pixels\":[\(d.pixelWidth),\(d.pixelHeight)],\"hz\":" + String(format: "%.0f", d.refreshRate) + "}"
     }
 
     public static func deviceObject(_ d: MultiTouchDeviceInfo) -> String {

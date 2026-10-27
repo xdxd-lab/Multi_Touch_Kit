@@ -58,11 +58,12 @@ macOS 限制：App 拿不到觸控螢幕觸點，觸控板觸點也無法偽造�
 | 單元測試（以實機擷取資料為 fixture） | 13 項通過（需用 `scripts/test.sh`，直接 `swift test` 會找不到 Testing 模組） |
 | `MultiTouchKitC` C ABI（14 個匯出函式）＋ `Examples/c/basic.c` | 完成，實機驗證：抓到裝置、獨占兩介面、讀到最大觸點數 10、struct 大小與標頭一致 |
 | `mtk-server`（UDP／WebSocket／TUIO）、`mtk-probe`、`mtk-viewer` | 完成；模擬觸控下 3 秒 376 frame、8.00 ms 間隔，三種輸出一致 |
-| LaunchAgent 安裝／移除腳本 | 已寫，未見驗證紀錄 |
-| Python（UDP／WS／TUIO／ctypes）與網頁範例 | 已寫 |
+| LaunchAgent 安裝／移除腳本 | 2026-10-28 以 `--simulate` 驗證安裝、launchd 執行中、UDP 收到資料、移除乾淨；實機觸控常駐待使用者確認「輸入監控」權限 |
+| Python（UDP／WS／TUIO／ctypes）與網頁範例 | Python 四個範例 2026-10-28 驗證通過（UDP／WS／TUIO 搭配 `--simulate`；ctypes 開啟實機）；網頁範例未在瀏覽器驗證 |
 | Unity 套件 `com.xdxd-lab.multitouchkit` 與 universal `.bundle`（arm64＋x86_64） | 已寫並建置；**本機尚未安裝 Unity，未在 Unity 內驗證** |
-| Python ctypes 載入 `.bundle` 驗證 | 前次工作在此中斷，結果未知 |
-| README／`docs/` 使用說明 | **未完成**（README 只有標題） |
+| Python ctypes 載入 `.bundle` 驗證 | 2026-10-28 通過：arm64 與 x86_64（Rosetta）都能載入、獨占 ILITEK、讀到最大觸點數 10。前次中斷原因：`build-unity-plugin.sh` 最後以 x86_64 建置，`.build/release` 被指向 x86_64，ctypes 預設載入失敗（已修正） |
+| README／`docs/` 使用說明 | 2026-10-28 完成：README、`docs/swift-package.md`、`c-api.md`、`server-protocol.md`、`unity.md` |
+| 觸控螢幕對應顯示器 | 2026-10-28 新增 `DisplaySelector`／`DisplayLocator`（auto 依面板實體尺寸、EDID、名稱＋解析度等），C API `mtk_set_display`、`--display`、Unity `displaySelector`；實機 auto 正確選到 MF156LR（EDID `6474:aa15`），未經實際觸碰確認位置 |
 | 系統層手勢合成 | 未開始 |
 
 ## 6. 待辦與分工
