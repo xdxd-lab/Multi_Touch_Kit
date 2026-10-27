@@ -1,4 +1,5 @@
 // mtk-server：獨占觸控螢幕，透過 UDP JSON、WebSocket、TUIO 1.1 廣播給其他程式。
+import CoreGraphics
 import Foundation
 import MultiTouchKit
 
@@ -12,6 +13,7 @@ struct ServerOptions {
     var productID: Int?
     var simulate = false
     var verbose = false
+    var display = DisplaySelector.environment ?? .automatic
 
     static let usage = """
     用法：mtk-server [選項]
@@ -24,6 +26,9 @@ struct ServerOptions {
       --no-tuio         不送 TUIO
       --vid N / --pid N 只使用指定的 Vendor／Product ID（可寫 0x222A）
       --shared          不獨占裝置（系統游標仍會跟著動）
+      --display SEL     觸控螢幕所在的顯示器，放在 WebSocket hello 的 display 欄位（預設 auto 或 MTK_DISPLAY）
+                        例：edid:6474:aa15、name:Sculptor,size:1920x1080（格式見 docs/server-protocol.md）
+      --list-displays   列出顯示器後離開
       --simulate        使用模擬觸控（不需要硬體）
       --verbose         印出每個觸控事件
     """
@@ -61,6 +66,12 @@ struct ServerOptions {
             case "--vid": o.vendorID = number(it.next())
             case "--pid": o.productID = number(it.next())
             case "--shared": o.exclusive = false
+            case "--display":
+                guard let selector = it.next().flatMap(DisplaySelector.init) else { fail("--display 格式錯誤") }
+                o.display = selector
+            case "--list-displays":
+                for d in DisplayLocator.onlineDisplays() { print(d) }
+                exit(0)
             case "--simulate": o.simulate = true
             case "--verbose": o.verbose = true
             case "--help", "-h":
@@ -96,6 +107,10 @@ final class ServerRuntime: @unchecked Sendable {
     private var webSocket: WebSocketHub?
     private var active: [UInt64: Touch] = [:]
     private var signalSources: [DispatchSourceSignal] = []
+    /// 觸控螢幕所在的顯示器（在主執行緒解析，才拿得到名稱）
+    private let displayLock = NSLock()
+    private var _display: DisplayInfo?
+    private var display: DisplayInfo? { displayLock.withLock { _display } }
 
     init(options: ServerOptions) {
         self.options = options
@@ -138,7 +153,7 @@ final class ServerRuntime: @unchecked Sendable {
         if let port = options.wsPort {
             do {
                 webSocket = try WebSocketHub(port: port, lan: options.wsLAN, queue: queue,
-                                             hello: { [self] in TouchJSON.hello(server: "mtk-server", devices: devices) },
+                                             hello: { [self] in TouchJSON.hello(server: "mtk-server", devices: devices, display: display) },
                                              log: { print($0) })
             } catch {
                 print("無法開啟 WebSocket 埠 \(port)：\(error)")
@@ -162,6 +177,12 @@ final class ServerRuntime: @unchecked Sendable {
             }
             if manager.connectedDevices.isEmpty { print("目前沒有偵測到觸控螢幕，接上後會自動開始。") }
         }
+        resolveDisplay()
+        CGDisplayRegisterReconfigurationCallback({ _, flags, context in
+            guard !flags.contains(.beginConfigurationFlag), let context else { return }
+            let runtime = Unmanaged<ServerRuntime>.fromOpaque(context).takeUnretainedValue()
+            DispatchQueue.main.async { runtime.resolveDisplay() }
+        }, Unmanaged.passUnretained(self).toOpaque())
 
         for sig in [SIGINT, SIGTERM] {
             signal(sig, SIG_IGN)
@@ -201,10 +222,25 @@ final class ServerRuntime: @unchecked Sendable {
         }
     }
 
+    /// 必須在主執行緒呼叫
+    func resolveDisplay() {
+        let match = DisplayLocator.resolve(options.display, panel: devices.first)
+        let previous = display
+        displayLock.withLock { _display = match?.display }
+        guard match?.display != previous || previous == nil else { return }
+        if let match {
+            print("觸控對應顯示器：\(match.display)（\(match.note)）")
+        } else {
+            print("找不到符合 \(options.display) 的顯示器")
+        }
+    }
+
     private func handle(_ event: DeviceEvent) {
         let message: String
         switch event {
-        case .added(let info): message = TouchJSON.device(info, event: "added")
+        case .added(let info):
+            message = TouchJSON.device(info, event: "added")
+            DispatchQueue.main.async { [self] in resolveDisplay() }
         case .removed(let info): message = TouchJSON.device(info, event: "removed")
         case .reinitialized(let info): message = TouchJSON.device(info, event: "reinitialized")
         }

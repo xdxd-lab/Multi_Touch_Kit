@@ -213,6 +213,63 @@ public func mtkPollLog(_ buffer: UnsafeMutablePointer<CChar>?, _ capacity: Int32
 @_cdecl("mtk_now_ns")
 public func mtkNowNs() -> UInt64 { MultiTouchClock.now() }
 
+/// mtk_set_display 選擇的顯示器；結果快取到顯示器設定或觸控裝置改變為止。只在主執行緒存取。
+@MainActor
+enum TouchDisplay {
+    static var selector = DisplaySelector.environment ?? .automatic
+    private static var cached: (id: CGDirectDisplayID, devices: [MultiTouchDeviceInfo])?
+    private static var observing = false
+
+    static func invalidate() { cached = nil }
+
+    static func resolve() -> CGDirectDisplayID {
+        if !observing {
+            observing = true
+            CGDisplayRegisterReconfigurationCallback({ _, flags, _ in
+                guard !flags.contains(.beginConfigurationFlag) else { return }
+                DispatchQueue.main.async { MainActor.assumeIsolated { TouchDisplay.invalidate() } }
+            }, nil)
+        }
+        let devices = CRuntime.shared.devices
+        if let cached, cached.devices == devices { return cached.id }
+        let match = DisplayLocator.resolve(selector, panel: devices.first)
+        let id = match?.display.id ?? 0
+        cached = (id, devices)
+        if let match {
+            CRuntime.shared.appendLog("[MultiTouchKit] 觸控對應顯示器 \(match.display)：\(match.note)")
+        } else {
+            CRuntime.shared.appendLog("[MultiTouchKit] 找不到符合 \(selector) 的顯示器")
+        }
+        return id
+    }
+}
+
+@_cdecl("mtk_set_display")
+public func mtkSetDisplay(_ selector: UnsafePointer<CChar>?) -> Int32 {
+    let text = selector.map { String(cString: $0) } ?? ""
+    let parsed: DisplaySelector?
+    if text.isEmpty {
+        parsed = DisplaySelector.environment ?? .automatic
+    } else {
+        parsed = DisplaySelector(text)
+    }
+    guard let parsed else { return MTK_ERR_INVALID_ARGUMENT }
+    let apply: @Sendable () -> Void = {
+        MainActor.assumeIsolated {
+            TouchDisplay.selector = parsed
+            TouchDisplay.invalidate()
+        }
+    }
+    if Thread.isMainThread { apply() } else { DispatchQueue.main.async(execute: apply) }
+    return MTK_OK
+}
+
+@_cdecl("mtk_touch_display_id")
+public func mtkTouchDisplayID() -> UInt32 {
+    guard Thread.isMainThread else { return 0 }
+    return MainActor.assumeIsolated { TouchDisplay.resolve() }
+}
+
 @_cdecl("mtk_map_to_window")
 public func mtkMapToWindow(_ x: Float, _ y: Float, _ displayID: UInt32,
                            _ outX: UnsafeMutablePointer<Float>?, _ outY: UnsafeMutablePointer<Float>?) -> Int32 {
@@ -221,7 +278,8 @@ public func mtkMapToWindow(_ x: Float, _ y: Float, _ displayID: UInt32,
         guard let app = NSApp,
               let window = app.keyWindow ?? app.mainWindow ?? app.windows.first(where: { $0.isVisible }),
               let view = window.contentView else { return nil }
-        let mapping = ScreenMapping(displayID: displayID == 0 ? CGMainDisplayID() : displayID)
+        let resolved = displayID != 0 ? displayID : TouchDisplay.resolve()
+        let mapping = ScreenMapping(displayID: resolved != 0 ? resolved : CGMainDisplayID())
         let inWindow = window.convertPoint(fromScreen: mapping.cocoaPoint(x: Double(x), y: Double(y)))
         var inView = view.convert(inWindow, from: nil)
         if view.isFlipped { inView.y = view.bounds.height - inView.y }

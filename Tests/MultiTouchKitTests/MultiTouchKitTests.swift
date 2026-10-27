@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import MultiTouchKit
@@ -175,5 +176,89 @@ import Testing
         #expect(p.x == 1 && p.y == 0)
         let none = ScreenMapping().orient(x: 0.25, y: 0.75)
         #expect(none.x == 0.25 && none.y == 0.75)
+    }
+}
+
+/// 2026-10-28 實機上的三台顯示器：SONY TV（主螢幕）、MF156LR（Sculptor 1920x1080）、另一台 Sculptor 1920x2160
+@Suite struct DisplayTests {
+    static func display(_ id: CGDirectDisplayID, _ name: String, vendor: UInt32, model: UInt32, serial: UInt32,
+                        main: Bool, px: (Int, Int), hz: Double, mm: (Double, Double)) -> DisplayInfo {
+        DisplayInfo(id: id, name: name, vendor: vendor, model: model, serial: serial, uuid: "UUID-\(id)", isMain: main,
+                    isBuiltin: false, bounds: .zero, pixelWidth: px.0, pixelHeight: px.1, refreshRate: hz,
+                    widthMillimeters: mm.0, heightMillimeters: mm.1, rotation: 0)
+    }
+
+    let displays = [
+        display(3, "SONY TV", vendor: 0x4DD9, model: 0xF301, serial: 16_843_009, main: true, px: (1920, 1080), hz: 60, mm: (1625, 914)),
+        display(1, "Sculptor (2)", vendor: 0x6474, model: 0xA2D5, serial: 4, main: false, px: (1920, 2160), hz: 100, mm: (290, 527)),
+        display(2, "Sculptor (1)", vendor: 0x6474, model: 0xAA15, serial: 0, main: false, px: (1920, 1080), hz: 60, mm: (350, 200)),
+    ]
+
+    var panel: MultiTouchDeviceInfo {
+        MultiTouchDeviceInfo(id: 1, vendorID: 0x222A, productID: 1, manufacturer: "ILITEK", product: "ILITEK-TP",
+                             serialNumber: "", locationID: 0x0010_0000, maxContacts: 10, slotsPerReport: 10,
+                             physicalWidthMillimeters: 309.3, physicalHeightMillimeters: 173.9, hasScanTime: true, exclusive: true)
+    }
+
+    func resolve(_ text: String, panel: MultiTouchDeviceInfo? = nil) -> CGDirectDisplayID? {
+        DisplayLocator.resolve(DisplaySelector(text)!, panel: panel, displays: displays)?.display.id
+    }
+
+    @Test func automaticPicksPanelSizedDisplay() {
+        #expect(resolve("auto", panel: panel) == 2)
+        #expect(resolve("", panel: panel) == 2)
+        // 沒有面板尺寸時退回主螢幕
+        #expect(resolve("auto") == 3)
+    }
+
+    @Test func simulatedSourceMatchesSameDisplay() {
+        // mtk-server／mtk-viewer --simulate 用模擬來源的面板尺寸，應與實機選到同一台
+        #expect(resolve("auto", panel: SimulatedTouchSource.deviceInfo) == 2)
+    }
+
+    @Test func automaticFallbackExplainsReason() throws {
+        let none = try #require(DisplayLocator.resolve(.automatic, panel: nil, displays: displays))
+        #expect(none.display.id == 3)
+        #expect(none.note.contains("還沒有觸控裝置"))
+
+        var unknown = panel
+        unknown.physicalWidthMillimeters = nil
+        let noSize = try #require(DisplayLocator.resolve(.automatic, panel: unknown, displays: displays))
+        #expect(noSize.display.id == 3)
+        #expect(noSize.note.contains("沒有回報面板實體尺寸"))
+
+        var tiny = panel
+        tiny.physicalWidthMillimeters = 100
+        tiny.physicalHeightMillimeters = 60
+        let mismatch = try #require(DisplayLocator.resolve(.automatic, panel: tiny, displays: displays))
+        #expect(mismatch.display.id == 3)
+        #expect(mismatch.note.contains("30% 內"))
+    }
+
+    @Test func explicitSelectorsDistinguishSameName() {
+        #expect(resolve("edid:6474:aa15") == 2)
+        #expect(resolve("edid:0x6474:0xA2D5") == 1)
+        #expect(resolve("edid:6474:a2d5:4") == 1)
+        #expect(resolve("edid:6474:a2d5:5") == nil)
+        #expect(resolve("name:sculptor,size:1920x1080") == 2)
+        #expect(resolve("name:Sculptor,hz:100") == 1)
+        #expect(resolve("main") == 3)
+        #expect(resolve("id:1") == 1)
+        #expect(resolve("2") == 2)
+        #expect(resolve("uuid:uuid-2") == 2)
+        // 多台符合時取第一台非主螢幕
+        #expect(resolve("size:1920x1080") == 2)
+    }
+
+    @Test func rejectsMalformedSelectors() {
+        for text in ["edid:6474", "edid:zz:1", "size:1920", "id:abc", "foo", "name:", "hz:x"] {
+            #expect(DisplaySelector(text) == nil, "\(text)")
+        }
+    }
+
+    @Test func helloIncludesDisplay() {
+        let json = TouchJSON.hello(server: "mtk-server", devices: [], display: displays[2])
+        #expect(json.contains("\"display\":{\"id\":2,\"name\":\"Sculptor (1)\",\"edid\":\"6474:aa15:0\""))
+        #expect(json.contains("\"pixels\":[1920,1080],\"hz\":60}"))
     }
 }

@@ -2,6 +2,7 @@
 """用 ctypes 直接呼叫 MultiTouchKit C API（不需要 mtk-server）。
 
 用法：python3 native_ctypes.py [秒數] [程式庫路徑]
+環境變數 MTK_DISPLAY 可指定觸控螢幕所在的顯示器（例：edid:6474:aa15），預設自動依面板尺寸挑選。
 程式庫預設依序尋找：.build/release/libMultiTouchKitC.dylib、Unity 套件內的 MultiTouchKit.bundle。
 結構定義必須與 Sources/CMultiTouchKit/include/multitouchkit.h 一致。
 """
@@ -44,16 +45,26 @@ class DeviceInfo(ctypes.Structure):
 
 PHASES = ["began", "moved", "stationary", "ended", "cancelled"]
 seconds = float(sys.argv[1]) if len(sys.argv) > 1 else 10
-path = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else next((p for p in CANDIDATES if p.exists()), None)
-if path is None:
-    sys.exit("找不到程式庫，請先執行 swift build -c release 或 scripts/build-unity-plugin.sh")
+lib = path = None
+for candidate in [pathlib.Path(sys.argv[2])] if len(sys.argv) > 2 else CANDIDATES:
+    if not candidate.exists():
+        continue
+    try:
+        lib, path = ctypes.CDLL(str(candidate)), candidate
+        break
+    except OSError as error:  # 例如 .build/release 是另一個架構
+        print(f"無法載入 {candidate}：{error}", file=sys.stderr)
+if lib is None:
+    sys.exit("找不到可載入的程式庫，請先執行 swift build -c release 或 scripts/build-unity-plugin.sh")
 
-lib = ctypes.CDLL(str(path))
 lib.mtk_version.restype = ctypes.c_char_p
 lib.mtk_now_ns.restype = ctypes.c_uint64
 lib.mtk_poll_events.argtypes = [ctypes.POINTER(TouchEvent), ctypes.c_int32]
 lib.mtk_poll_log.argtypes = [ctypes.c_char_p, ctypes.c_int32]
 lib.mtk_get_device_info.argtypes = [ctypes.c_int32, ctypes.POINTER(DeviceInfo)]
+lib.mtk_dropped_event_count.restype = ctypes.c_uint64
+lib.mtk_set_display.argtypes = [ctypes.c_char_p]
+lib.mtk_touch_display_id.restype = ctypes.c_uint32
 assert ctypes.sizeof(Config) == 32 and ctypes.sizeof(TouchEvent) == 56 and ctypes.sizeof(DeviceInfo) == 160
 
 log = ctypes.create_string_buffer(512)
@@ -75,6 +86,9 @@ for i in range(lib.mtk_device_count()):
     info = DeviceInfo()
     lib.mtk_get_device_info(i, ctypes.byref(info))
     print(f"裝置 #{info.device_id} {info.manufacturer.decode()} {info.product.decode()}：最多 {info.max_contacts} 點")
+# 只是查詢對應的顯示器（mtk_map_to_window 需要 Cocoa 視窗，命令列程式用不到）
+print(f"觸控螢幕所在顯示器 CGDirectDisplayID = {lib.mtk_touch_display_id()}")
+drain_logs()
 
 events = (TouchEvent * 256)()
 end = time.time() + seconds

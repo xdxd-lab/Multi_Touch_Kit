@@ -9,7 +9,10 @@ OUT=$PACKAGE/Runtime/Plugins/macOS/MultiTouchKit.bundle
 VERSION=$(sed -n 's/.*static let string = "\(.*\)".*/\1/p' Sources/MultiTouchKit/Touch.swift)
 DEPLOYMENT=13.0
 
-for arch in arm64 x86_64; do
+# 本機架構放在最後建置：SwiftPM 會把 .build/release 指向最後一次建置的架構，
+# 否則 .build/release 裡的 libMultiTouchKitC.dylib、mtk-server 等會變成另一個架構而無法在本機執行
+if [[ "$(uname -m)" == arm64 ]]; then ARCHS=(x86_64 arm64); else ARCHS=(arm64 x86_64); fi
+for arch in $ARCHS; do
     echo "== 建置 $arch"
     swift build -c release --product MultiTouchKitC --triple "$arch-apple-macosx$DEPLOYMENT"
 done

@@ -113,10 +113,21 @@ uint64_t mtk_now_ns(void);
 
 /*
  * 把正規化觸控座標換算成目前程式 key window（沒有則 main window）內容區的像素座標，
- * 原點在左下角（與 Unity 的 Screen 座標相同）。display_id = 0 代表主螢幕。
+ * 原點在左下角（與 Unity 的 Screen 座標相同）。
+ * display_id = 0 代表觸控螢幕所在的顯示器（由 mtk_set_display 選擇，預設自動）；其他值為 CGDirectDisplayID。
  * 必須在主執行緒呼叫。成功回傳 MTK_OK，沒有視窗回傳 MTK_ERR_NO_WINDOW。
  */
 int32_t mtk_map_to_window(float x, float y, uint32_t display_id, float *out_x, float *out_y);
+
+/*
+ * 選擇觸控螢幕對應的顯示器（UTF-8 文字，格式見 docs/c-api.md）。NULL 或 "" = 環境變數 MTK_DISPLAY，
+ * 沒有設定時為 "auto"（依觸控面板實體尺寸挑選）。例："edid:6474:aa15"、"name:Sculptor,size:1920x1080"。
+ * 可在 mtk_start 前後呼叫。格式錯誤回傳 MTK_ERR_INVALID_ARGUMENT（設定不變）。
+ */
+int32_t mtk_set_display(const char *selector);
+
+/* 目前選到的顯示器 CGDirectDisplayID，找不到時回傳 0。必須在主執行緒呼叫。 */
+uint32_t mtk_touch_display_id(void);
 
 #ifdef __cplusplus
 }

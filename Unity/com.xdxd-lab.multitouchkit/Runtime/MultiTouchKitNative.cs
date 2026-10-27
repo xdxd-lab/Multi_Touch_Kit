@@ -115,6 +115,9 @@ namespace MultiTouchKit
         [DllImport(Library)] public static extern int mtk_poll_log([Out] byte[] buffer, int capacity);
         [DllImport(Library)] public static extern ulong mtk_now_ns();
         [DllImport(Library)] public static extern int mtk_map_to_window(float x, float y, uint displayId, out float outX, out float outY);
+        // selector 為 UTF-8；見 docs/c-api.md。null 或 "" = 環境變數 MTK_DISPLAY 或自動
+        [DllImport(Library)] public static extern int mtk_set_display([MarshalAs(UnmanagedType.LPUTF8Str)] string selector);
+        [DllImport(Library)] public static extern uint mtk_touch_display_id();
 #else
         // 其他平台沒有原生外掛：提供同名的空實作，讓專案在所有平台都能編譯
         public static int mtk_api_version() => 0;
@@ -130,6 +133,8 @@ namespace MultiTouchKit
         public static int mtk_poll_log(byte[] buffer, int capacity) => 0;
         public static ulong mtk_now_ns() => 0;
         public static int mtk_map_to_window(float x, float y, uint displayId, out float outX, out float outY) { outX = outY = 0; return ErrorNoWindow; }
+        public static int mtk_set_display(string selector) => -1;
+        public static uint mtk_touch_display_id() => 0;
 #endif
     }
 }

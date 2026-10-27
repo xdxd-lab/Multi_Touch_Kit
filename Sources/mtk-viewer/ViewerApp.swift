@@ -15,6 +15,7 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
     private var statusMessage = ""
 
     static func main() {
+        setvbuf(stdout, nil, _IOLBF, 0)
         let app = NSApplication.shared
         let delegate = ViewerApp()
         shared = delegate
@@ -28,42 +29,39 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
         if arguments.contains("--help") || arguments.contains("-h") {
             print("""
             用法：mtk-viewer [選項]
-              --display N   顯示在第 N 個螢幕（從 0 開始，預設為主螢幕）
-              --rotate DEG  觸控面板相對畫面的旋轉：0、90、180、270
-              --simulate    使用模擬觸控（不需要硬體）
+              --display SEL   觸控螢幕所在的顯示器（預設 auto，或環境變數 MTK_DISPLAY）。
+                              例：edid:6474:aa15、name:Sculptor,size:1920x1080、main、id:2（格式見 docs/swift-package.md）
+              --list-displays 列出顯示器後離開
+              --rotate DEG    觸控面板相對畫面的旋轉：0、90、180、270
+              --simulate      使用模擬觸控（不需要硬體）
             """)
             exit(0)
         }
-        var screen = NSScreen.main ?? NSScreen.screens[0]
-        if let i = arguments.firstIndex(of: "--display"), i + 1 < arguments.count, let n = Int(arguments[i + 1]),
-           NSScreen.screens.indices.contains(n) {
-            screen = NSScreen.screens[n]
+        if arguments.contains("--list-displays") {
+            for d in DisplayLocator.onlineDisplays() { print(d) }
+            exit(0)
         }
-        if let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID {
-            mapping.displayID = id
+        var selector = DisplaySelector.environment ?? .automatic
+        if let i = arguments.firstIndex(of: "--display") {
+            guard i + 1 < arguments.count, let parsed = DisplaySelector(arguments[i + 1]) else {
+                print("--display 格式錯誤")
+                exit(2)
+            }
+            selector = parsed
         }
         if let i = arguments.firstIndex(of: "--rotate"), i + 1 < arguments.count,
            let rotation = Int(arguments[i + 1]).flatMap(ScreenMapping.Rotation.init(rawValue:)) {
             mapping.rotation = rotation
         }
 
-        touchView = TouchView(frame: screen.frame)
-        window = KeyableWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.setFrame(screen.frame, display: true)
-        window.contentView = touchView
-        window.backgroundColor = .black
-        window.level = .normal
-        window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(touchView)
-        NSApp.activate(ignoringOtherApps: true)
-
+        // 先開啟觸控裝置，auto 才能用面板實體尺寸挑選顯示器
+        touchView = TouchView(frame: .zero)
         let handler: @Sendable (TouchFrame) -> Void = { frame in
             DispatchQueue.main.async { MainActor.assumeIsolated { ViewerApp.shared?.receive(frame) } }
         }
         if arguments.contains("--simulate") {
             let source = SimulatedTouchSource()
             source.frameHandler = handler
-            source.start()
             simulator = source
             touchView.status = "模擬觸控"
         } else {
@@ -81,6 +79,32 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
             if manager.connectedDevices.isEmpty { touchView.status = "沒有偵測到觸控螢幕，接上後會自動開始" }
             self.manager = manager
         }
+
+        var screen = NSScreen.main ?? NSScreen.screens[0]
+        let panel = simulator != nil ? SimulatedTouchSource.deviceInfo : manager?.connectedDevices.first
+        if let match = DisplayLocator.resolve(selector, panel: panel) {
+            print("顯示器：\(match.display)（\(match.note)）")
+            mapping.displayID = match.display.id
+            if let s = NSScreen.screens.first(where: {
+                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value == match.display.id
+            }) {
+                screen = s
+            }
+        } else {
+            print("找不到符合 \(selector) 的顯示器，使用主螢幕")
+            mapping.displayID = CGMainDisplayID()
+        }
+
+        touchView.frame = CGRect(origin: .zero, size: screen.frame.size)
+        window = KeyableWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.setFrame(screen.frame, display: true)
+        window.contentView = touchView
+        window.backgroundColor = .black
+        window.level = .normal
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(touchView)
+        NSApp.activate(ignoringOtherApps: true)
+        simulator?.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

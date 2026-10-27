@@ -28,11 +28,12 @@ public final class SimulatedTouchSource: @unchecked Sendable {
         if DispatchQueue.getSpecific(key: queueKey) != nil { body() } else { queue.sync(execute: body) }
     }
 
+    /// 面板實體尺寸沿用 ILITEK（MF156LR）HID 描述子的值，讓 DisplaySelector 的 auto 在模擬時也選到同一台顯示器
     public static var deviceInfo: MultiTouchDeviceInfo {
         MultiTouchDeviceInfo(id: deviceID, vendorID: 0, productID: 0, manufacturer: "MultiTouchKit",
                              product: "Simulated Touch Screen", serialNumber: "", locationID: 0,
-                             maxContacts: 10, slotsPerReport: 10, physicalWidthMillimeters: nil,
-                             physicalHeightMillimeters: nil, hasScanTime: false, exclusive: false)
+                             maxContacts: 10, slotsPerReport: 10, physicalWidthMillimeters: 309.3,
+                             physicalHeightMillimeters: 173.9, hasScanTime: false, exclusive: false)
     }
 
     public func start() {
