@@ -20,6 +20,7 @@ struct ServerOptions {
     var gesturesSwipe = SwipeMode.keys
     var gesturesExclude: Set<String> = []
     var gesturesLog = false
+    var releaseButtons = false
     var gesturesRotationGain: Double?
     var gesturesMagnifyExponent: Double?
     var gesturesMomentumGain: Double?
@@ -49,6 +50,7 @@ struct ServerOptions {
       --gestures-swipe dock|keys  三／四指滑動的送出方式（預設 keys：Control＋方向鍵；dock：跟手的 Dock 手勢，實驗性）
       --gestures-exclude BUNDLE_ID[,…]  這些 App 在前景時暫停手勢（例：com.unity3d.UnityEditor5.x）
       --gestures-log    送出事件時也印出手勢摘要（與 dry-run 相同格式，標籤為 [手勢]）
+      --release-buttons 在目前游標位置送出左／右／中鍵放開後離開（mtk-server 異常結束、滑鼠鍵卡住時的復原）
       --gestures-rotation-gain X     旋轉增益（送出角度 = 手指角度 × X，預設 1.5）
       --gestures-magnify-exponent X  縮放增益（送出倍率 = 指距倍率^X，預設 0.6；1 = 等比例）
       --gestures-momentum-gain X     捲動慣性距離倍數（預設 1；2 = 滑行約兩倍遠）
@@ -110,6 +112,7 @@ struct ServerOptions {
                 guard let list = it.next(), !list.isEmpty else { fail("--gestures-exclude 需要 bundle ID") }
                 o.gesturesExclude.formUnion(list.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
             case "--gestures-log": o.gesturesLog = true
+            case "--release-buttons": o.releaseButtons = true
             case "--gestures-rotation-gain":
                 guard let v = it.next().flatMap(Double.init), v > 0 else { fail("--gestures-rotation-gain 需要大於 0 的數字") }
                 o.gesturesRotationGain = v
@@ -138,7 +141,15 @@ struct ServerOptions {
 struct ServerCommand {
     static func main() {
         setvbuf(stdout, nil, _IOLBF, 0)
-        let server = ServerRuntime(options: ServerOptions.parse(Array(CommandLine.arguments.dropFirst())))
+        let options = ServerOptions.parse(Array(CommandLine.arguments.dropFirst()))
+        if options.releaseButtons {
+            let pressed = CGEventGestureOutput.systemButtonsPressed
+            CGEventGestureOutput.releaseSystemButtons()
+            print(pressed.isEmpty ? "已送出滑鼠鍵放開（系統原本沒有按住的鍵）" : "已放開卡住的滑鼠鍵：\(pressed.map(\.rawValue))")
+            if !CGEventGestureOutput.isTrusted(prompt: false) { print("注意：沒有「輔助使用」權限時系統會丟棄這些事件") }
+            exit(0)
+        }
+        let server = ServerRuntime(options: options)
         server.start()
         // 用 RunLoop（而非 dispatchMain）：NSWorkspace 的前景 App 通知需要主執行緒的 run loop
         withExtendedLifetime(server) { RunLoop.main.run() }
@@ -237,10 +248,13 @@ final class ServerRuntime: @unchecked Sendable {
             DispatchQueue.main.async { runtime.resolveDisplay() }
         }, Unmanaged.passUnretained(self).toOpaque())
 
-        for sig in [SIGINT, SIGTERM] {
+        // SIGHUP：關閉終端機／herdr pane；SIGTERM：pkill、launchctl bootout。
+        // 都要先放開手勢按住的滑鼠鍵再結束，否則系統會一直認為左鍵按住（SIGKILL 無法攔截，見 --release-buttons）
+        for sig in [SIGINT, SIGTERM, SIGHUP, SIGQUIT] {
             signal(sig, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: sig, queue: queue)
             source.setEventHandler { [self] in
+                gestures?.shutdown()
                 webSocket?.cancel()
                 manager?.stop()
                 simulator?.stop()
@@ -263,6 +277,11 @@ final class ServerRuntime: @unchecked Sendable {
             output = LoggingGestureOutput(swipeMode: options.gesturesSwipe) { print($0) }
         } else {
             let events = CGEventGestureOutput(swipeMode: options.gesturesSwipe)
+            // 上次異常結束（例如 SIGKILL、當機後被 LaunchAgent 重新啟動）留下按住的鍵：啟動時先放開
+            if !CGEventGestureOutput.systemButtonsPressed.isEmpty {
+                print("手勢：啟動時偵測到滑鼠鍵按住中（可能是上次異常結束），先送出放開")
+                CGEventGestureOutput.releaseSystemButtons()
+            }
             output = options.gesturesLog
                 ? CombinedGestureOutput([events, LoggingGestureOutput(label: "手勢", swipeMode: options.gesturesSwipe) { print($0) }])
                 : events
@@ -280,7 +299,8 @@ final class ServerRuntime: @unchecked Sendable {
         // 慣性距離 ≈ 速度 ÷ friction，所以距離倍數 = friction 的倒數倍
         if let v = options.gesturesMomentumGain { configuration.recognizer.momentumFriction /= v }
         let controller = GestureController(configuration: configuration, queue: queue, output: output)
-        MainActor.assumeIsolated { controller.startObservingFrontmostApp() }
+        controller.logHandler = { print($0) }
+        MainActor.assumeIsolated { controller.startObservingWorkspace() }
         gestures = controller
         var notes = [dryRun ? "dry-run" : "送出系統事件", "三／四指滑動：\(options.gesturesSwipe.rawValue)"]
         if options.gesturesLog && !dryRun { notes.append("記錄手勢") }

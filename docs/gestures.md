@@ -76,6 +76,7 @@ ILITEK-TP 的 HID 描述子每個觸點只有 Contact ID、Tip Switch、X、Y，
 | `--gestures-rotation-gain X` | 旋轉增益（預設 1.5） |
 | `--gestures-magnify-exponent X` | 縮放增益指數（預設 0.6；1 = 與指距等比例） |
 | `--gestures-momentum-gain X` | 捲動慣性距離倍數（預設 1；2 = 滑行約兩倍遠、時間也較長；實作為衰減率 ÷ X） |
+| `--release-buttons` | 在目前游標位置送出左／右／中鍵放開後離開（滑鼠鍵卡住時的復原，見「風險」） |
 | `--simulate-pattern gestures` | 模擬觸控改為每 12 秒依序做出所有手勢（隱含 `--simulate`），用來驗證辨識；`drums` 為預設模式 |
 
 `--simulate`／`--simulate-pattern` 時**一律為 dry-run**，啟動時 log 會說明（模擬觸控會在桌面上到處點擊）。
@@ -166,6 +167,35 @@ manager.frameHandler = { gestures.handle($0) }
 | `keys` 模式切換桌面／Mission Control | ⏳ 待使用者測試 | |
 
 ## 風險
+
+### 事故（2026-10-28）：結束時滑鼠左鍵卡住
+
+`mtk-server --gestures` 在拖曳中被直接結束時，`mouseDown` 已送出、`mouseUp` 沒送，系統一直認為左鍵按住，滑鼠左鍵完全失效。原因：只處理 SIGINT／SIGTERM，關閉終端機或 herdr pane（SIGHUP）會照預設行為直接結束；結束流程也只靠辨識器的狀態推導 mouseUp。
+
+修正後的保護（`GestureController`＋`CGEventGestureOutput`）：
+
+| 情況 | 處理 |
+|---|---|
+| SIGINT、SIGTERM（pkill、`launchctl bootout`）、SIGHUP（關閉終端機）、SIGQUIT | 結束前 `shutdown()`：放開按住的鍵、以 cancelled／ended 結束捲動、慣性、縮放、旋轉、swipe，之後不再處理觸控 |
+| 觸控裝置拔除 | `cancel()` 同上 |
+| 系統即將睡眠 | 同上 |
+| 超過 5 點（手掌） | 同上 |
+| 拖曳中切到 `--gestures-exclude` 的 App | 立即取消並放開，忽略到所有手指離開 |
+| 有手指在螢幕上卻 2 秒沒有任何觸控報告（裝置斷線、卡住） | watchdog 自動取消並放開（ILITEK 按住不動時仍以 125 Hz 回報） |
+| 啟動 `--gestures` 時系統顯示滑鼠鍵按住中（例如上次被 SIGKILL 或當機後由 LaunchAgent 重新啟動） | 啟動時先送出放開 |
+
+放開依送出端自己記錄的「已送出 mouseDown 但還沒 mouseUp」狀態處理，與辨識器的狀態無關，不會漏掉。
+
+**仍然卡住時的復原**（例如 `kill -9`／SIGKILL 無法攔截）：用還能用的觸控板、鍵盤開終端機執行
+
+```sh
+~/Projects/MultiTouchKit/.build/release/mtk-server --release-buttons
+# LaunchAgent 安裝版：
+~/Library/Application\ Support/MultiTouchKit/mtk-server --release-buttons
+```
+
+它會在目前游標位置送出左、右、中鍵的放開事件後離開（需要「輔助使用」權限）。也可以直接用實體滑鼠按一下左鍵再放開。
+
 
 - **未公開事件可能隨 macOS 更新失效**（縮放、旋轉、Dock swipe）：失效時通常是「沒有反應」，不會造成錯誤操作。點擊、拖曳、捲動、`keys` 模式都是公開 API。更新 macOS 後除了 `--simulate-pattern gestures`，也請以實機觸碰確認一次，並更新上表。
 - 合成的縮放／旋轉只對支援觸控板手勢的 App 有效（預覽程式、Safari、地圖、照片等）。

@@ -27,9 +27,10 @@ swift build -c release --product mtk-server
 | `--verbose` | 印出每個觸控事件 |
 | `--gestures` | 同時把觸控合成為系統操作（點擊、捲動、縮放等），見 [gestures.md](gestures.md) |
 | `--gestures-dry-run`／`--gestures-swipe dock\|keys`／`--gestures-exclude BUNDLE_ID[,…]` | 手勢選項，見 [gestures.md](gestures.md) |
+| `--release-buttons` | 送出左／右／中鍵放開後離開（手勢模式異常結束、滑鼠鍵卡住時的復原，見 [gestures.md](gestures.md)） |
 | `--simulate-pattern drums\|gestures` | 模擬觸控的模式（隱含 `--simulate`；預設 `drums`）。`gestures` 依序做出各種手勢（手勢一律 dry-run） |
 
-`Ctrl+C`（SIGINT／SIGTERM）會釋放裝置並結束。
+`Ctrl+C`、SIGTERM、SIGHUP（關閉終端機）、SIGQUIT 都會先放開手勢按住的滑鼠鍵、釋放裝置再結束。
 
 ### 登入後自動執行（LaunchAgent）
 

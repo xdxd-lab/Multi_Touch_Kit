@@ -4,7 +4,9 @@ import Foundation
 import MultiTouchKit
 
 /// 把 MultiTouchManager（或 SimulatedTouchSource）的 frame 接到 GestureRecognizer 與 GestureOutput：
-/// 座標換算到觸控螢幕所在的顯示器、長按與慣性的計時、前景 App 排除。
+/// 座標換算到觸控螢幕所在的顯示器、慣性的計時、前景 App 排除，以及「不讓滑鼠鍵卡住」的各種保護：
+/// 結束（`shutdown`）、裝置移除（`cancel`）、系統睡眠、切到被排除的 App、觸控報告中斷（watchdog）時，
+/// 都會放開按住的滑鼠鍵並結束進行中的連續手勢。
 ///
 /// `handle(_:)` 必須在建構時指定的 `queue` 上呼叫（通常就是 MultiTouchManager.queue）。
 public final class GestureController: @unchecked Sendable {
@@ -12,8 +14,10 @@ public final class GestureController: @unchecked Sendable {
         public var recognizer = GestureRecognizer.Configuration()
         /// 這些 bundle ID 的 App 在前景時暫停手勢（手指落下當時判斷）
         public var excludedBundleIDs: Set<String> = []
-        /// 計時頻率（長按、慣性捲動）
+        /// 計時頻率（慣性捲動）
         public var tickRate: Double = 120
+        /// 有手指在螢幕上、卻超過這麼久沒有收到任何觸控報告（裝置斷線、卡住）時，取消手勢並放開按鍵（秒）
+        public var watchdogTimeout: Double = 2
 
         public init() {}
     }
@@ -27,7 +31,7 @@ public final class GestureController: @unchecked Sendable {
     private let lock = NSLock()
     private var _displayID: CGDirectDisplayID?
     private var _frontmostBundleID: String?
-    private var observer: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
 
     // 以下只在 queue 上存取
     private var recognizer: GestureRecognizer
@@ -36,6 +40,9 @@ public final class GestureController: @unchecked Sendable {
     private var activeTouchIDs: Set<UInt64> = []
     /// 控制器回報 Confidence = false（手掌等非刻意觸碰）的觸點，整個生命週期都不參與手勢。ILITEK 沒有這個欄位
     private var ignoredTouchIDs: Set<UInt64> = []
+    private var watchdog: DispatchSourceTimer?
+    private var lastFrameTime = 0.0
+    private var stopped = false
 
     public init(configuration: Configuration = .init(), queue: DispatchQueue, output: GestureOutput) {
         self.configuration = configuration
@@ -45,8 +52,9 @@ public final class GestureController: @unchecked Sendable {
     }
 
     deinit {
-        if let observer { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        for o in observers { NSWorkspace.shared.notificationCenter.removeObserver(o) }
         timer?.cancel()
+        watchdog?.cancel()
     }
 
     /// 觸控螢幕所在的顯示器；nil 時不送出事件（找不到顯示器）
@@ -55,17 +63,35 @@ public final class GestureController: @unchecked Sendable {
         set { lock.withLock { _displayID = newValue } }
     }
 
-    /// 開始追蹤前景 App（排除清單用）。必須在主執行緒呼叫。
+    /// 開始追蹤系統睡眠與前景 App（排除清單用）。必須在主執行緒呼叫，且主執行緒要有 run loop。
     @MainActor
-    public func startObservingFrontmostApp() {
-        guard observer == nil, !configuration.excludedBundleIDs.isEmpty else { return }
+    public func startObservingWorkspace() {
+        guard observers.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        observers.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: nil) { [weak self] _ in
+            guard let self else { return }
+            queue.async { self.cancel(reason: "系統即將睡眠") }
+        })
+        guard !configuration.excludedBundleIDs.isEmpty else { return }
         lock.withLock { _frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
-        observer = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: nil
-        ) { [weak self] note in
+        observers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: nil) {
+            [weak self] note in
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            self?.lock.withLock { self?._frontmostBundleID = app?.bundleIdentifier }
-        }
+            guard let self else { return }
+            let id = app?.bundleIdentifier
+            queue.async { self.frontmostChanged(to: id) }
+        })
+    }
+
+    /// 前景 App 改變（在 queue 上）。切到被排除的 App 時，進行中的手勢立即取消並忽略到所有手指離開。
+    func frontmostChanged(to bundleID: String?) {
+        lock.withLock { _frontmostBundleID = bundleID }
+        guard let bundleID, configuration.excludedBundleIDs.contains(bundleID), !activeTouchIDs.isEmpty, !suspendedSequence else { return }
+        logHandler?("手勢：切換到排除的 App（\(bundleID)），取消進行中的手勢並放開按鍵")
+        send(recognizer.reset())
+        output.releaseAll()
+        suspendedSequence = true
+        updateTimer()
     }
 
     private var frontmostIsExcluded: Bool {
@@ -76,6 +102,9 @@ public final class GestureController: @unchecked Sendable {
     // MARK: - 輸入（在 queue 上）
 
     public func handle(_ frame: TouchFrame) {
+        guard !stopped else { return }
+        lastFrameTime = Double(MultiTouchClock.now()) / 1e9
+        defer { updateWatchdog() }
         let wasEmpty = activeTouchIDs.isEmpty
         for t in frame.touches {
             if t.phase.isTerminal { activeTouchIDs.remove(t.id) } else { activeTouchIDs.insert(t.id) }
@@ -103,13 +132,48 @@ public final class GestureController: @unchecked Sendable {
         updateTimer()
     }
 
-    /// 取消進行中的手勢（裝置移除、停止時）
-    public func cancel() {
-        send(recognizer.reset())
+    /// 取消進行中的手勢並放開所有按住的鍵（裝置移除、睡眠等）。之後的觸控照常處理。
+    public func cancel(reason: String? = nil) {
+        let events = recognizer.reset()
+        if let reason, !events.isEmpty || !activeTouchIDs.isEmpty { logHandler?("手勢：\(reason)，取消進行中的手勢並放開按鍵") }
+        send(events)
+        output.releaseAll()
         activeTouchIDs.removeAll()
         ignoredTouchIDs.removeAll()
         suspendedSequence = false
         updateTimer()
+        updateWatchdog()
+    }
+
+    /// 結束程式前呼叫（在 queue 上）：放開所有按住的鍵、結束連續手勢，之後不再處理任何觸控
+    public func shutdown() {
+        guard !stopped else { return }
+        cancel()
+        stopped = true
+        timer?.cancel()
+        timer = nil
+        watchdog?.cancel()
+        watchdog = nil
+    }
+
+    /// watchdog：有手指在螢幕上卻超過 `watchdogTimeout` 沒有觸控報告時取消（測試用 internal）
+    func checkWatchdog(now: Double) {
+        guard !activeTouchIDs.isEmpty, now - lastFrameTime > configuration.watchdogTimeout else { return }
+        cancel(reason: String(format: "%.1f 秒沒有收到觸控報告（裝置斷線或卡住）", now - lastFrameTime))
+    }
+
+    private func updateWatchdog() {
+        if !activeTouchIDs.isEmpty && !stopped {
+            guard watchdog == nil else { return }
+            let t = DispatchSource.makeTimerSource(queue: queue)
+            t.schedule(deadline: .now() + 0.5, repeating: 0.5, leeway: .milliseconds(50))
+            t.setEventHandler { [weak self] in self?.checkWatchdog(now: Double(MultiTouchClock.now()) / 1e9) }
+            watchdog = t
+            t.resume()
+        } else if let watchdog {
+            watchdog.cancel()
+            self.watchdog = nil
+        }
     }
 
     private func send(_ events: [GestureEvent]) {
