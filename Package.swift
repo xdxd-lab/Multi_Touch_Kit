@@ -25,6 +25,6 @@ let package = Package(
         .executableTarget(name: "mtk-server", dependencies: ["MultiTouchKit", "MultiTouchKitGestures"]),
         .executableTarget(name: "mtk-viewer", dependencies: ["MultiTouchKit"]),
         .testTarget(name: "MultiTouchKitTests", dependencies: ["MultiTouchKit"]),
-        .testTarget(name: "MultiTouchKitGesturesTests", dependencies: ["MultiTouchKitGestures"]),
+        .testTarget(name: "MultiTouchKitGesturesTests", dependencies: ["MultiTouchKitGestures", "MultiTouchKit"]),
     ]
 )

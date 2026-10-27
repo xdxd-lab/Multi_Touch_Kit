@@ -5,6 +5,57 @@ import Foundation
 /// 手勢事件的送出端。`send` 一律在 GestureController 的佇列上依序呼叫。
 public protocol GestureOutput: AnyObject, Sendable {
     func send(_ events: [GestureEvent])
+    /// 放開所有仍按住的滑鼠鍵、結束所有進行中的連續手勢（結束程式、裝置移除、睡眠等）。
+    /// 依送出端自己記錄的狀態處理，與辨識器的狀態無關；沒有東西需要放開時不送任何事件。
+    func releaseAll()
+}
+
+extension GestureOutput {
+    public func releaseAll() {}
+}
+
+/// 送出端記錄「目前按住／進行中」的狀態，並產生放開用的事件（純邏輯，可測）
+struct GestureOutputState: Sendable, Equatable {
+    var pressed: Set<MouseButtonKey> = []
+    var lastPoint: CGPoint?
+    var scrolling = false
+    var momentum = false
+    var magnifying = false
+    var rotating = false
+    var swipe: SwipeAxis?
+
+    /// MouseButton 沒有 Hashable；用簡單的 key 記錄
+    enum MouseButtonKey: Sendable, Hashable { case left, right }
+
+    var isEmpty: Bool { pressed.isEmpty && !scrolling && !momentum && !magnifying && !rotating && swipe == nil }
+
+    mutating func record(_ e: GestureEvent) {
+        switch e {
+        case .pointer(let p): lastPoint = p
+        case .mouseDown(let b, let p, _): pressed.insert(b == .left ? .left : .right); lastPoint = p
+        case .mouseDragged(_, let p): lastPoint = p
+        case .mouseUp(let b, let p, _): pressed.remove(b == .left ? .left : .right); lastPoint = p
+        case .scroll(_, _, let ph): scrolling = ph == .began || ph == .changed
+        case .momentum(_, _, let ph): momentum = ph != .ended
+        case .magnify(_, let ph): magnifying = ph == .began || ph == .changed
+        case .rotate(_, let ph): rotating = ph == .began || ph == .changed
+        case .swipe(let axis, _, _, _, let ph): swipe = (ph == .began || ph == .changed) ? axis : nil
+        }
+    }
+
+    /// 放開用的事件；`fallback` 為沒有記錄到位置時使用的游標位置
+    func releaseEvents(fallback: CGPoint) -> [GestureEvent] {
+        var out: [GestureEvent] = []
+        if scrolling { out.append(.scroll(dx: 0, dy: 0, phase: .cancelled)) }
+        if momentum { out.append(.momentum(dx: 0, dy: 0, phase: .ended)) }
+        if magnifying { out.append(.magnify(0, phase: .cancelled)) }
+        if rotating { out.append(.rotate(degrees: 0, phase: .cancelled)) }
+        if let swipe { out.append(.swipe(swipe, progress: 0, velocity: 0, fingers: 0, phase: .cancelled)) }
+        let p = lastPoint ?? fallback
+        if pressed.contains(.left) { out.append(.mouseUp(.left, p, clickCount: 1)) }
+        if pressed.contains(.right) { out.append(.mouseUp(.right, p, clickCount: 1)) }
+        return out
+    }
 }
 
 /// 三／四指滑動的送出方式
@@ -179,6 +230,10 @@ public final class CombinedGestureOutput: GestureOutput, @unchecked Sendable {
     public func send(_ events: [GestureEvent]) {
         for o in outputs { o.send(events) }
     }
+
+    public func releaseAll() {
+        for o in outputs { o.releaseAll() }
+    }
 }
 
 /// 以 CGEvent 合成系統事件。需要「輔助使用」權限（未授權時系統會靜默丟棄事件）。
@@ -191,6 +246,7 @@ public final class CGEventGestureOutput: GestureOutput, @unchecked Sendable {
     private var lastMouse: CGPoint?
     private var scrollRemainder = (x: 0.0, y: 0.0)
     private var dockSwipe: (axis: SwipeAxis, offset: Double)?
+    private var state = GestureOutputState()
 
     public init(swipeMode: SwipeMode = .keys) {
         self.swipeMode = swipeMode
@@ -207,7 +263,28 @@ public final class CGEventGestureOutput: GestureOutput, @unchecked Sendable {
         for e in events { post(e) }
     }
 
+    public func releaseAll() {
+        let cursor = CGEvent(source: nil)?.location ?? .zero
+        for e in state.releaseEvents(fallback: cursor) { post(e) }
+    }
+
+    /// 不論本程序是否送過 mouseDown，在目前游標位置送出左、右、中鍵的 mouseUp
+    /// （mtk-server --release-buttons：上次結束時鍵卡住的復原方法）
+    public static func releaseSystemButtons() {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let p = CGEvent(source: nil)?.location ?? .zero
+        for (type, button) in [(CGEventType.leftMouseUp, CGMouseButton.left), (.rightMouseUp, .right), (.otherMouseUp, .center)] {
+            CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: p, mouseButton: button)?.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// 系統是否認為滑鼠鍵按住中（含其他程式送出的合成事件）
+    public static var systemButtonsPressed: [CGMouseButton] {
+        [CGMouseButton.left, .right, .center].filter { CGEventSource.buttonState(.combinedSessionState, button: $0) }
+    }
+
     private func post(_ event: GestureEvent) {
+        state.record(event)
         switch event {
         case .pointer(let p):
             mouse(.mouseMoved, p, button: .left, clickCount: 0)
