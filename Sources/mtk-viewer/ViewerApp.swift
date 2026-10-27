@@ -34,6 +34,7 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
               --list-displays 列出顯示器後離開
               --rotate DEG    觸控面板相對畫面的旋轉：0、90、180、270
               --simulate      使用模擬觸控（不需要硬體）
+              --stale-touch-timeout SEC  誤觸：觸點幾乎不動超過 SEC 秒就取消（預設 30，0 = 關閉）
             """)
             exit(0)
         }
@@ -65,7 +66,15 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
             simulator = source
             touchView.status = "模擬觸控"
         } else {
-            let manager = MultiTouchManager()
+            var configuration = MultiTouchManager.Configuration()
+            if let i = arguments.firstIndex(of: "--stale-touch-timeout") {
+                guard i + 1 < arguments.count, let v = Double(arguments[i + 1]), v >= 0 else {
+                    print("--stale-touch-timeout 需要 0 以上的秒數")
+                    exit(2)
+                }
+                configuration.staleTouchTimeout = v
+            }
+            let manager = MultiTouchManager(configuration: configuration)
             manager.frameHandler = handler
             manager.logHandler = { message in
                 print(message)

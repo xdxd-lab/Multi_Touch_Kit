@@ -9,6 +9,7 @@ struct ProbeOptions {
     var csvPath: String?
     var simulate = false
     var exclusive = true
+    var staleTouchTimeout: Double?
 
     static let usage = """
     用法：mtk-probe [選項]
@@ -17,6 +18,7 @@ struct ProbeOptions {
       --csv PATH      輸出每個 frame 的原始資料
       --shared        不獨占裝置（系統游標仍會跟著動）
       --simulate      使用模擬觸控（不需要硬體）
+      --stale-touch-timeout SEC  誤觸：觸點幾乎不動超過 SEC 秒就取消（預設 30，0 = 關閉）
     """
 
     static func parse(_ arguments: [String]) -> ProbeOptions {
@@ -29,6 +31,12 @@ struct ProbeOptions {
             case "--csv": o.csvPath = it.next()
             case "--shared": o.exclusive = false
             case "--simulate": o.simulate = true
+            case "--stale-touch-timeout":
+                guard let v = it.next().flatMap(Double.init), v >= 0 else {
+                    print(usage)
+                    exit(2)
+                }
+                o.staleTouchTimeout = v
             default:
                 print(usage)
                 exit(a == "--help" || a == "-h" ? 0 : 2)
@@ -91,6 +99,7 @@ final class Probe: @unchecked Sendable {
         } else {
             var configuration = MultiTouchManager.Configuration()
             configuration.exclusive = options.exclusive
+            if let v = options.staleTouchTimeout { configuration.staleTouchTimeout = v }
             let manager = MultiTouchManager(configuration: configuration)
             queue = manager.queue
             manager.logHandler = { print($0) }

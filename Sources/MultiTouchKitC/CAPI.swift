@@ -11,10 +11,9 @@ final class CRuntime: @unchecked Sendable {
 
     private let lock = NSLock()
     private var manager: MultiTouchManager?
-    private var ring: [MTKTouchEvent] = []
-    private var head = 0
-    private var count = 0
-    private var dropped: UInt64 = 0
+    /// 溢位時以重新同步保證狀態一致的佇列（見 TouchEventQueue）
+    private var queue = TouchEventQueue<MTKTouchEvent>(capacity: 4096)
+    private var reportedResyncs: UInt64 = 0
     private var reportStationary = false
     private var callback: MTKEventCallback?
     private var callbackUserData: UnsafeMutableRawPointer?
@@ -22,7 +21,7 @@ final class CRuntime: @unchecked Sendable {
     private static let maxLogs = 128
 
     var isRunning: Bool { lock.withLock { manager != nil } }
-    var droppedCount: UInt64 { lock.withLock { dropped } }
+    var droppedCount: UInt64 { lock.withLock { queue.dropped } }
     var devices: [MultiTouchDeviceInfo] { lock.withLock { manager?.connectedDevices ?? [] } }
 
     func start(_ config: MTKConfig) -> Int32 {
@@ -32,12 +31,16 @@ final class CRuntime: @unchecked Sendable {
         configuration.productID = config.product_id != 0 ? Int(config.product_id) : nil
         configuration.exclusive = config.exclusive != 0
         configuration.initializeMultiTouchMode = config.init_multitouch != 0
+        // 0 = 預設（MultiTouchManager.Configuration 的 30 秒）、< 0 = 關閉
+        if config.stale_timeout_ms < 0 {
+            configuration.staleTouchTimeout = 0
+        } else if config.stale_timeout_ms > 0 {
+            configuration.staleTouchTimeout = Double(config.stale_timeout_ms) / 1000
+        }
         let capacity = config.queue_capacity > 0 ? Int(config.queue_capacity) : 4096
         lock.withLock {
-            ring = Array(repeating: MTKTouchEvent(), count: capacity)
-            head = 0
-            count = 0
-            dropped = 0
+            queue = TouchEventQueue(capacity: capacity)
+            reportedResyncs = 0
             reportStationary = config.report_stationary != 0
         }
         let manager = MultiTouchManager(configuration: configuration)
@@ -69,13 +72,23 @@ final class CRuntime: @unchecked Sendable {
     }
 
     func poll(into buffer: UnsafeMutablePointer<MTKTouchEvent>, capacity: Int) -> Int {
-        lock.withLock {
-            let n = min(capacity, count)
-            for i in 0..<n { buffer[i] = ring[(head + i) % ring.count] }
-            if n > 0 { head = (head + n) % ring.count }
-            count -= n
-            return n
+        let (events, note) = lock.withLock { () -> ([MTKTouchEvent], String?) in
+            let events = queue.pop(limit: capacity)
+            var note: String?
+            if queue.resyncs != reportedResyncs {
+                reportedResyncs = queue.resyncs
+                note = "[MultiTouchKit] 事件佇列已重新同步（累計丟棄 \(queue.dropped) 筆過時事件；"
+                    + "通常是程式暫停輪詢，例如 Unity 失去焦點），已依目前觸點狀態補送 began／moved／cancelled"
+            }
+            return (events, note)
         }
+        for (i, e) in events.enumerated() { buffer[i] = e }
+        if let note { appendLog(note) }
+        return events.count
+    }
+
+    func requestResync() {
+        lock.withLock { queue.requestResync() }
     }
 
     func appendLog(_ message: String) {
@@ -112,7 +125,7 @@ final class CRuntime: @unchecked Sendable {
         }
         guard !events.isEmpty else { return }
         let (callback, userData) = lock.withLock { () -> (MTKEventCallback?, UnsafeMutableRawPointer?) in
-            for e in events { push(e) }
+            for e in events { queue.push(e) }
             return (self.callback, callbackUserData)
         }
         if let callback {
@@ -120,18 +133,6 @@ final class CRuntime: @unchecked Sendable {
         }
     }
 
-    /// 需持有 lock
-    private func push(_ event: MTKTouchEvent) {
-        let capacity = ring.count
-        guard capacity > 0 else { return }
-        if count == capacity {
-            head = (head + 1) % capacity
-            count -= 1
-            dropped += 1
-        }
-        ring[(head + count) % capacity] = event
-        count += 1
-    }
 }
 
 nonisolated(unsafe) private let versionCString: UnsafeMutablePointer<CChar> = strdup(MultiTouchKitVersion.string)!
@@ -146,7 +147,7 @@ public func mtkVersion() -> UnsafePointer<CChar> { UnsafePointer(versionCString)
 public func mtkDefaultConfig(_ config: UnsafeMutablePointer<MTKConfig>?) {
     guard let config else { return }
     config.pointee = MTKConfig(struct_size: Int32(MemoryLayout<MTKConfig>.size), vendor_id: 0, product_id: 0,
-                               exclusive: 1, init_multitouch: 1, report_stationary: 0, queue_capacity: 0, reserved: 0)
+                               exclusive: 1, init_multitouch: 1, report_stationary: 0, queue_capacity: 0, stale_timeout_ms: 0)
 }
 
 @_cdecl("mtk_start")
@@ -171,6 +172,9 @@ public func mtkPollEvents(_ buffer: UnsafeMutablePointer<MTKTouchEvent>?, _ capa
     guard let buffer, capacity > 0 else { return 0 }
     return Int32(CRuntime.shared.poll(into: buffer, capacity: Int(capacity)))
 }
+
+@_cdecl("mtk_request_resync")
+public func mtkRequestResync() { CRuntime.shared.requestResync() }
 
 @_cdecl("mtk_dropped_event_count")
 public func mtkDroppedEventCount() -> UInt64 { CRuntime.shared.droppedCount }
@@ -307,4 +311,14 @@ private func copyCString(_ string: String, into buffer: UnsafeMutableRawBufferPo
     }
     buffer[length] = 0
     return length
+}
+
+extension MTKTouchEvent: QueuedTouchEvent {
+    public var queuedTouchID: UInt64 { touch_id }
+    public var queuedPhase: TouchPhase { TouchPhase(rawValue: UInt8(truncatingIfNeeded: phase)) ?? .cancelled }
+    public func withQueuedPhase(_ phase: TouchPhase) -> MTKTouchEvent {
+        var e = self
+        e.phase = Int32(phase.rawValue)
+        return e
+    }
 }

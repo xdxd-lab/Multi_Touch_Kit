@@ -14,11 +14,18 @@ namespace MultiTouchKit
         readonly int m_ProductId;
         readonly bool m_ReportStationary;
         readonly bool m_Log;
+        readonly float m_StaleTouchTimeout;
         bool m_Started;
+        ulong m_LastDropped;
 
+        /// <summary>原生佇列溢位時丟棄的過時事件總數（溢位後會自動重新同步，觸點狀態不會遺失）。</summary>
+        public ulong DroppedEventCount => m_Started ? MultiTouchKitNative.mtk_dropped_event_count() : 0;
+
+        /// <param name="staleTouchTimeout">觸點幾乎不動超過此秒數就視為誤觸並取消（線材等幽靈觸點）；0 = 關閉</param>
         public NativeTransport(bool exclusive = true, int vendorId = 0, int productId = 0,
-                               bool reportStationary = false, bool log = true)
+                               bool reportStationary = false, bool log = true, float staleTouchTimeout = 30f)
         {
+            m_StaleTouchTimeout = staleTouchTimeout;
             m_Exclusive = exclusive;
             m_VendorId = vendorId;
             m_ProductId = productId;
@@ -38,6 +45,7 @@ namespace MultiTouchKit
             var config = new MultiTouchKitNative.Config();
             MultiTouchKitNative.mtk_default_config(ref config);
             config.exclusive = m_Exclusive ? 1 : 0;
+            config.staleTimeoutMs = m_StaleTouchTimeout > 0 ? Mathf.Max(1, Mathf.RoundToInt(m_StaleTouchTimeout * 1000)) : -1;
             config.vendorId = m_VendorId;
             config.productId = m_ProductId;
             config.reportStationary = m_ReportStationary ? 1 : 0;
@@ -49,6 +57,7 @@ namespace MultiTouchKit
                 return false;
             }
             m_Started = true;
+            m_LastDropped = MultiTouchKitNative.mtk_dropped_event_count();
             return true;
         }
 
@@ -75,7 +84,20 @@ namespace MultiTouchKit
                     });
                 }
             } while (count == m_Buffer.Length);
+            ulong dropped = MultiTouchKitNative.mtk_dropped_event_count();
+            if (dropped != m_LastDropped)
+            {
+                Debug.LogWarning($"[MultiTouchKit] 原生事件佇列溢位，已丟棄 {dropped - m_LastDropped} 筆過時事件並依目前觸點狀態重新同步" +
+                                 "（通常是 Update 暫停，例如編輯器失去焦點；可開啟 MultiTouchKitManager.runInBackground）");
+                m_LastDropped = dropped;
+            }
             DrainLogs();
+        }
+
+        /// <summary>下一次 Poll 先依原生端目前的觸點狀態重新同步（App 回到前景時呼叫）。</summary>
+        public void RequestResync()
+        {
+            if (m_Started) MultiTouchKitNative.mtk_request_resync();
         }
 
         public void Dispose()

@@ -177,20 +177,75 @@ struct FrameAssembler: Sendable {
 }
 
 /// 把每個 frame 的觸點轉成帶有 began／moved／ended 的 Touch
+/// 報告中斷偵測：ILITEK 在手指全部離開時只送最後一筆 tip=0 就停止回報；那筆遺失（USB 異常、睡眠）時，
+/// 觸點會永遠停在「按下」。有觸點時超過 `timeout` 沒有任何報告就應全部取消。
+struct ReportTimeoutMonitor: Sendable {
+    /// 秒；0 = 關閉
+    var timeout: Double
+    private(set) var lastReport: UInt64 = 0
+
+    init(timeout: Double) {
+        self.timeout = timeout
+    }
+
+    mutating func reportReceived(at time: UInt64) { lastReport = time }
+
+    /// 已超過時間沒有報告（只在仍有觸點時有意義）
+    func isExpired(at now: UInt64, hasActiveTouches: Bool) -> Bool {
+        timeout > 0 && hasActiveTouches && Double(now &- lastReport) / 1e9 > timeout
+    }
+
+    func silence(at now: UInt64) -> Double { Double(now &- lastReport) / 1e9 }
+}
+
 struct ContactTracker: Sendable {
+    /// 長時間完全不動的觸點（線材、物體碰到電容面板造成的幽靈觸點）的處理
+    struct StalePolicy: Sendable, Equatable {
+        /// 秒；0 = 關閉
+        var timeout: Double = 0
+        /// 正規化座標；偏離錨點不超過此值都算「不動」
+        var tolerance: Double = 0.003
+        /// 被取消的觸點再移動超過此距離（正規化）就視為新的觸碰
+        var reviveDistance: Double = 0.02
+    }
+
+    var stalePolicy = StalePolicy()
     private(set) var active: [Int: Touch] = [:]
+    /// 錨點：最後一次「明顯移動」的位置與時間（奈秒）
+    private var anchors: [Int: (x: Double, y: Double, time: UInt64)] = [:]
+    /// 已因長時間不動而取消、但控制器仍回報按下的 contact（記錄取消時的位置）
+    private(set) var suppressed: [Int: (x: Double, y: Double)] = [:]
 
     var hasActiveTouches: Bool { !active.isEmpty }
 
-    mutating func update(_ contacts: [RawContact], allocateID: () -> UInt64) -> [Touch] {
+    /// - Parameter time: frame 時間（奈秒）；0 時不做長時間不動的判斷
+    mutating func update(_ contacts: [RawContact], at time: UInt64 = 0, allocateID: () -> UInt64) -> [Touch] {
         var out: [Touch] = []
         var seen = Set<Int>()
+        let checkStale = stalePolicy.timeout > 0 && time > 0
         for c in contacts {
             guard seen.insert(c.contactID).inserted else { continue }
             if c.tip {
+                if let s = suppressed[c.contactID] {
+                    // 幽靈觸點：明顯移動才當成新的觸碰，否則忽略
+                    guard hypot(c.x - s.x, c.y - s.y) > stalePolicy.reviveDistance else { continue }
+                    suppressed[c.contactID] = nil
+                }
                 if var t = active[c.contactID] {
                     t.phase = (t.rawX != c.rawX || t.rawY != c.rawY) ? .moved : .stationary
                     t.apply(c)
+                    if checkStale, let a = anchors[c.contactID] {
+                        if abs(c.x - a.x) > stalePolicy.tolerance || abs(c.y - a.y) > stalePolicy.tolerance {
+                            anchors[c.contactID] = (c.x, c.y, time)
+                        } else if Double(time &- a.time) / 1e9 >= stalePolicy.timeout {
+                            t.phase = .cancelled
+                            active[c.contactID] = nil
+                            anchors[c.contactID] = nil
+                            suppressed[c.contactID] = (c.x, c.y)
+                            out.append(t)
+                            continue
+                        }
+                    }
                     active[c.contactID] = t
                     out.append(t)
                 } else {
@@ -198,12 +253,17 @@ struct ContactTracker: Sendable {
                                   x: c.x, y: c.y, rawX: c.rawX, rawY: c.rawY)
                     t.apply(c)
                     active[c.contactID] = t
+                    if checkStale { anchors[c.contactID] = (c.x, c.y, time) }
                     out.append(t)
                 }
-            } else if var t = active.removeValue(forKey: c.contactID) {
-                // 放開時部分控制器會回報 0,0，保留最後的有效位置
-                t.phase = .ended
-                out.append(t)
+            } else {
+                suppressed[c.contactID] = nil
+                anchors[c.contactID] = nil
+                if var t = active.removeValue(forKey: c.contactID) {
+                    // 放開時部分控制器會回報 0,0，保留最後的有效位置
+                    t.phase = .ended
+                    out.append(t)
+                }
             }
         }
         // 沒出現在這個 frame 的觸點視為已放開
@@ -211,8 +271,10 @@ struct ContactTracker: Sendable {
             var ended = t
             ended.phase = .ended
             active[cid] = nil
+            anchors[cid] = nil
             out.append(ended)
         }
+        for cid in suppressed.keys where !seen.contains(cid) { suppressed[cid] = nil }
         return out
     }
 
@@ -224,6 +286,7 @@ struct ContactTracker: Sendable {
             return c
         }
         active.removeAll()
+        anchors.removeAll()
         return out
     }
 }

@@ -15,6 +15,7 @@ struct ServerOptions {
     var simulate = false
     var simulatePattern = SimulatedTouchSource.Pattern.drums
     var verbose = false
+    var staleTouchTimeout: Double?
     var gestures = false
     var gesturesDryRun = false
     var gesturesSwipe = SwipeMode.keys
@@ -44,6 +45,7 @@ struct ServerOptions {
       --simulate-pattern drums|gestures  模擬觸控的模式（隱含 --simulate；預設 drums）。
                         gestures：每 12 秒依序做出各種手勢，搭配 --gestures 驗證辨識
       --verbose         印出每個觸控事件
+      --stale-touch-timeout SEC  誤觸：觸點幾乎不動超過 SEC 秒就取消（預設 30，0 = 關閉）
       --gestures        把觸控合成為系統操作（點擊、拖曳、右鍵、捲動、縮放、旋轉、多指滑動），
                         同時照常廣播 10 點；需要「輔助使用」權限（見 docs/gestures.md）
       --gestures-dry-run  只辨識並印出手勢、不送事件（隱含 --gestures；--simulate 時一律為 dry-run）
@@ -103,6 +105,9 @@ struct ServerOptions {
                 o.simulate = true
                 o.simulatePattern = pattern
             case "--verbose": o.verbose = true
+            case "--stale-touch-timeout":
+                guard let v = it.next().flatMap(Double.init), v >= 0 else { fail("--stale-touch-timeout 需要 0 以上的秒數") }
+                o.staleTouchTimeout = v
             case "--gestures": o.gestures = true
             case "--gestures-dry-run": o.gestures = true; o.gesturesDryRun = true
             case "--gestures-swipe":
@@ -185,6 +190,7 @@ final class ServerRuntime: @unchecked Sendable {
             configuration.exclusive = options.exclusive
             configuration.vendorID = options.vendorID
             configuration.productID = options.productID
+            if let v = options.staleTouchTimeout { configuration.staleTouchTimeout = v }
             let manager = MultiTouchManager(configuration: configuration)
             self.manager = manager
             queue = manager.queue

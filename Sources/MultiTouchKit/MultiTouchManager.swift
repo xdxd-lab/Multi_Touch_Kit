@@ -25,6 +25,14 @@ public final class MultiTouchManager: @unchecked Sendable {
         public var seizeSiblingInterfaces = true
         /// 裝置被其他程式獨占時，每隔多久重試（秒）；0 代表不重試
         public var retryInterval: Double = 1.0
+        /// 觸點偏離錨點不超過 `staleTouchTolerance`、持續超過這麼久（秒）就視為誤觸並以 cancelled 取消
+        /// （線材、物體碰到電容面板造成的幽靈觸點）。之後忽略該觸點直到它離開，或明顯移動後以新的觸碰重新開始。
+        /// 真人手指按住不動時 ILITEK 的座標可完全不變達 10 秒以上，所以預設 30 秒；0 = 關閉
+        public var staleTouchTimeout: Double = 30
+        /// 正規化座標（0...1）；0.003 ≈ MF156LR 的 0.9 mm
+        public var staleTouchTolerance: Double = 0.003
+        /// 有觸點時超過這麼久（秒）沒有任何報告就全部取消（USB 異常）；控制器按住時以 125 Hz 回報。0 = 關閉
+        public var reportTimeout: Double = 0.5
 
         public init() {}
     }
@@ -211,6 +219,9 @@ public final class MultiTouchManager: @unchecked Sendable {
         nextDeviceID += 1
         exclusiveWarningShown.remove(info.registryID)
         device.log = { [weak self] in self?.emitLog($0) }
+        device.stalePolicy = ContactTracker.StalePolicy(timeout: max(0, configuration.staleTouchTimeout),
+                                                        tolerance: configuration.staleTouchTolerance)
+        device.reportTimeout = max(0, configuration.reportTimeout)
         device.allocateTouchID = { [unowned self] in
             defer { nextTouchID += 1 }
             return nextTouchID

@@ -55,7 +55,8 @@ mtk_stop();
 | `void mtk_stop(void)` | 停止並釋放裝置；仍在螢幕上的觸點以 cancelled 放入佇列 | 任意（不要在回呼內） |
 | `int32_t mtk_is_running(void)` | 1 = 執行中 | 任意 |
 | `int32_t mtk_poll_events(MTKTouchEvent *, int32_t cap)` | 依時間順序取出事件，回傳數量 | 任意 |
-| `uint64_t mtk_dropped_event_count(void)` | 佇列滿而丟棄的事件總數 | 任意 |
+| `uint64_t mtk_dropped_event_count(void)` | 佇列溢位（或重新同步）時丟棄的過時事件總數（觸點狀態不會遺失，見下） | 任意 |
+| `void mtk_request_resync(void)` | 下一次 `mtk_poll_events` 先依目前觸點狀態重新同步（App 回到前景時對帳） | 任意 |
 | `void mtk_set_event_callback(cb, user_data)` | 即時回呼；`NULL` 取消 | 任意 |
 | `int32_t mtk_device_count(void)` | 已開啟的裝置數 | 任意 |
 | `int32_t mtk_get_device_info(int32_t index, MTKDeviceInfo *)` | 第 index 台裝置資訊 | 任意 |
@@ -71,7 +72,9 @@ mtk_stop();
 
 所有欄位依自然對齊排列，大小固定（標頭與各語言綁定都會檢查）。
 
-`MTKConfig`（32 bytes）：`struct_size`、`vendor_id`／`product_id`（0 = 不限）、`exclusive`（1 = 獨占，預設）、`init_multitouch`（1 = 依 Windows 流程初始化多點模式，預設；ILITEK 必須）、`report_stationary`（0 = 佇列不放 stationary，預設）、`queue_capacity`（0 = 4096，滿了丟最舊的）、`reserved`。
+`MTKConfig`（32 bytes）：`struct_size`、`vendor_id`／`product_id`（0 = 不限）、`exclusive`（1 = 獨占，預設）、`init_multitouch`（1 = 依 Windows 流程初始化多點模式，預設；ILITEK 必須）、`report_stationary`（0 = 佇列不放 stationary，預設）、`queue_capacity`（0 = 4096）、`stale_timeout_ms`（長時間不動的觸點視為誤觸並取消：0 = 預設 30000 ms、-1 = 關閉、> 0 為毫秒；見「誤觸」）。
+
+> `stale_timeout_ms` 原本是 `reserved` 欄位（位置與大小不變，struct 仍為 32 bytes，`MTK_API_VERSION` 不變）。舊程式在這個欄位送 0，所以**用新的程式庫時會預設開啟 30 秒的誤觸取消**；不要這個行為時請設 -1。
 
 `MTKTouchEvent`（56 bytes）：
 
@@ -88,6 +91,28 @@ mtk_stop();
 | `flags` | u32 | `MTK_FLAG_HAS_PRESSURE` 1、`HAS_SIZE` 2、`HAS_CONFIDENCE` 4、`LOW_CONFIDENCE` 8 |
 
 `MTKDeviceInfo`（160 bytes）：`device_id`、`vendor_id`、`product_id`、`max_contacts`、`slots_per_report`、`exclusive`、`physical_width_mm`／`physical_height_mm`（未知為 0）、`manufacturer[64]`、`product[64]`（UTF-8、以 0 結尾）。
+
+## 誤觸：長時間不動的觸點與放開遺失
+
+電容面板會把碰到面板的線材、物體當成觸碰（例如滑鼠線放在 MF156LR 上），產生一個「一直按著」的幽靈觸點；面板在手指全部離開時只送最後一筆放開報告就停止回報，那筆遺失時觸點也會停在按下。核心層（所有呼叫方式共用）有三道保護：
+
+| 情況 | 處理 | 設定 |
+|---|---|---|
+| contact 不再出現在報告中（沒有收到 tip=0） | 立即視為放開（ended） | 一律 |
+| 有觸點時超過 0.5 秒沒有任何報告（最後一筆放開遺失、USB 異常、睡眠） | 全部 cancelled | Swift `reportTimeout`（秒，0 = 關閉） |
+| 觸點偏離錨點不超過 ±0.003（≈ 0.9 mm）持續 30 秒 | 該觸點 cancelled，log 記錄；之後忽略它直到控制器回報離開，或明顯移動（> 0.02 ≈ 6 mm）後以新的 touch id 重新 began | Swift `staleTouchTimeout`／`staleTouchTolerance`；C `stale_timeout_ms`；命令列 `--stale-touch-timeout SEC`；Unity `staleTouchTimeout` |
+
+實測：真人手指按住不動時 ILITEK 的座標可以完全不變超過 10 秒（控制器內部濾波），所以只看「不動」無法區分線材與手指，預設 30 秒保留餘裕。節奏遊戲長按音符通常 0.5～8 秒，不受影響；需要更長的長按時請調大或設 0 關閉。**遊戲請把 cancelled 視為放開**（長按判失敗），不要當作還按著。
+
+## 佇列溢位與重新同步
+
+`mtk_poll_events` 的佇列（預設 4096 筆）在呼叫端停止輪詢時會滿，例如 Unity 編輯器失去焦點、遊戲卡住。原本滿了就丟最舊的事件，丟到 ended 時觸點會永遠留在呼叫端的「仍在螢幕上」清單（2026-10-28 實際發生：Unity 失焦時 TouchVisualizer 凍結並殘留十多個點）。現在改為：
+
+1. 溢位時丟棄佇列中的過時事件，`mtk_dropped_event_count()` 增加，並標記需要重新同步。
+2. 下一次 `mtk_poll_events` 先送出重新同步事件：呼叫端以為還在、實際已離開的觸點 → `MTK_PHASE_CANCELLED`；仍在螢幕上、呼叫端還不知道的 → `BEGAN`；已知道的 → `MOVED`（目前位置）。之後接續新的事件。`mtk_poll_log` 會留下說明。
+3. 呼叫端照一般規則處理（began 加入、ended／cancelled 移除）即可得到正確狀態，不需要特別處理。緩衝區小也不會漏（重新同步事件會分批交出）。
+
+App 從背景回到前景時，也可以主動呼叫 `mtk_request_resync()` 對帳。
 
 ## 顯示器對應
 

@@ -46,11 +46,17 @@ namespace MultiTouchKit
         public string displaySelector = "";
         [Tooltip("直接指定 CGDirectDisplayID（非 0 時優先於 displaySelector；重新接線後可能改變）")]
         public uint displayId;
+        [Tooltip("觸點幾乎不動超過此秒數就視為誤觸並以 Cancelled 取消（線材碰到面板等幽靈觸點）；0 = 關閉。" +
+                 "長按音符超過 30 秒的遊戲請調大或關閉。Udp 模式由 mtk-server --stale-touch-timeout 決定")]
+        public float staleTouchTimeout = 30f;
         [Tooltip("把觸控送進 Input System 的 Touchscreen 裝置")]
         public bool feedInputSystem = true;
         [Tooltip("把原生診斷訊息印到 Console")]
         public bool logNativeMessages = true;
         public bool dontDestroyOnLoad = true;
+        [Tooltip("失去焦點時繼續執行（Application.runInBackground）。觸控螢幕通常是第二螢幕，使用者點主螢幕時遊戲仍要接收觸控；" +
+                 "關閉時失焦期間的觸控會在回到前景時依目前狀態重新同步")]
+        public bool runInBackground = true;
 
         public static MultiTouchKitManager Instance { get; private set; }
 
@@ -81,6 +87,7 @@ namespace MultiTouchKit
             }
             Instance = this;
             if (dontDestroyOnLoad && transform.parent == null) DontDestroyOnLoad(gameObject);
+            if (runInBackground) Application.runInBackground = true;
         }
 
         void OnEnable()
@@ -92,6 +99,26 @@ namespace MultiTouchKit
         void OnDisable() => StopTransport();
 
         void OnApplicationQuit() => StopTransport();
+
+        // 回到前景時與原生端對帳：失焦期間若 Update 暫停，可能錯過事件
+        void OnApplicationFocus(bool hasFocus)
+        {
+            if (hasFocus) RequestResync();
+        }
+
+        void OnApplicationPause(bool paused)
+        {
+            if (!paused) RequestResync();
+        }
+
+        /// <summary>下一次取出觸控時先依原生端目前的狀態重新同步（Native 傳輸）。</summary>
+        public void RequestResync()
+        {
+            if (m_Transport is NativeTransport native) native.RequestResync();
+        }
+
+        /// <summary>原生佇列溢位時丟棄的過時事件總數（Native 傳輸；溢位後會自動重新同步）。</summary>
+        public ulong DroppedEventCount => m_Transport is NativeTransport native ? native.DroppedEventCount : 0;
 
         void OnDestroy()
         {
@@ -109,7 +136,7 @@ namespace MultiTouchKit
         {
             if (m_Transport != null) return;
             IMultiTouchTransport created = transport == TransportMode.Native
-                ? new NativeTransport(exclusive, vendorId, productId, false, logNativeMessages)
+                ? new NativeTransport(exclusive, vendorId, productId, false, logNativeMessages, staleTouchTimeout)
                 : (IMultiTouchTransport)new UdpTransport(udpPort);
             if (!created.Start())
             {

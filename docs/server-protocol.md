@@ -25,6 +25,7 @@ swift build -c release --product mtk-server
 | `--list-displays` | 列出顯示器（id、名稱、解析度、EDID、實體尺寸）後離開 |
 | `--simulate` | 使用模擬觸控（模擬面板尺寸沿用 MF156LR 的 309x174mm，`auto` 會選到與實機相同的顯示器） |
 | `--verbose` | 印出每個觸控事件 |
+| `--stale-touch-timeout SEC` | 觸點幾乎不動超過 SEC 秒就以 cancelled 取消（線材等幽靈觸點；預設 30，0 = 關閉；見 [c-api.md 誤觸](c-api.md#誤觸長時間不動的觸點與放開遺失)） |
 | `--gestures` | 同時把觸控合成為系統操作（點擊、捲動、縮放等），見 [gestures.md](gestures.md) |
 | `--gestures-dry-run`／`--gestures-swipe dock\|keys`／`--gestures-exclude BUNDLE_ID[,…]` | 手勢選項，見 [gestures.md](gestures.md) |
 | `--release-buttons` | 送出左／右／中鍵放開後離開（手勢模式異常結束、滑鼠鍵卡住時的復原，見 [gestures.md](gestures.md)） |
