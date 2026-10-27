@@ -64,7 +64,7 @@ macOS 限制：App 拿不到觸控螢幕觸點，觸控板觸點也無法偽造�
 | Python ctypes 載入 `.bundle` 驗證 | 2026-10-28 通過：arm64 與 x86_64（Rosetta）都能載入、獨占 ILITEK、讀到最大觸點數 10。前次中斷原因：`build-unity-plugin.sh` 最後以 x86_64 建置，`.build/release` 被指向 x86_64，ctypes 預設載入失敗（已修正） |
 | README／`docs/` 使用說明 | 2026-10-28 完成：README、`docs/swift-package.md`、`c-api.md`、`server-protocol.md`、`unity.md` |
 | 觸控螢幕對應顯示器 | 2026-10-28 新增 `DisplaySelector`／`DisplayLocator`（auto 依面板實體尺寸、EDID、名稱＋解析度等），C API `mtk_set_display`、`--display`、Unity `displaySelector`；實機 auto 正確選到 MF156LR（EDID `6474:aa15`），未經實際觸碰確認位置 |
-| 系統層手勢合成 | 未開始 |
+| 系統層手勢合成 | 2026-10-28 實作於 `feat/gestures`：`MultiTouchKitGestures`＋`mtk-server --gestures`；辨識單元測試與 `--simulate-pattern gestures` dry-run 通過，事件編碼以測試視窗驗證；待使用者實機觸碰測試（見 docs/gestures.md） |
 
 ## 6. 待辦與分工
 

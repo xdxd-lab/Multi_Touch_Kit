@@ -14,7 +14,7 @@ macOS 內建驅動只把這類觸控螢幕當單點滑鼠。MultiTouchKit 在使
 實機量測（M4、macOS 26.2）：約 125 Hz（中位數 8.01 ms）、最多 10 點、獨占時游標 0 移動。
 
 限制：
-- 一般 macOS App（Finder、瀏覽器等）拿不到這些觸點，只有透過本專案 API／網路協定的程式才收得到 10 點。系統層手勢合成尚未實作。
+- 一般 macOS App（Finder、瀏覽器等）拿不到這些觸點，只有透過本專案 API／網路協定的程式才收得到 10 點。`mtk-server --gestures` 可把觸控合成為系統操作（點擊、捲動、縮放、旋轉、多指滑動），見 [docs/gestures.md](docs/gestures.md)。
 - 同一時間只有一個程序能獨占觸控螢幕。多個程式同時使用時，請執行 `mtk-server`，其他程式改收網路訊息。
 
 ## 架構
@@ -38,6 +38,7 @@ ILITEK 觸控螢幕 ──USB HID──▶ MultiTouchKit（Swift 核心）
 | C ABI／原生外掛 | Unity、C/C++、Python ctypes、Godot、Rust | 最低（同程序） | [docs/c-api.md](docs/c-api.md) |
 | `mtk-server` | 多個程式共用、網頁、TUIO App、其他電腦 | 多一次本機 UDP／WS 傳遞 | [docs/server-protocol.md](docs/server-protocol.md) |
 | Unity 套件 | Unity 遊戲（Native 或 UDP 傳輸、Input System） | 依傳輸方式 | [docs/unity.md](docs/unity.md) |
+| 系統手勢（`mtk-server --gestures`） | 一般 macOS App：點擊、右鍵、捲動、縮放、旋轉、切換桌面 | — | [docs/gestures.md](docs/gestures.md) |
 
 ## 快速開始
 
@@ -70,6 +71,7 @@ swift build -c release
 | `Sources/MultiTouchKit` | Swift 核心程式庫 |
 | `Sources/CMultiTouchKit/include/multitouchkit.h` | C API 標頭（ABI 定義） |
 | `Sources/MultiTouchKitC` | C API 實作（Swift `@_cdecl` 匯出），產出 `libMultiTouchKitC.dylib` |
+| `Sources/MultiTouchKitGestures` | 系統層手勢：辨識（純邏輯）與 CGEvent 送出 |
 | `Sources/mtk-server` | 常駐程式：UDP JSON、WebSocket、TUIO 1.1 |
 | `Sources/mtk-probe` | 量測工具：回報率、觸點數、連打、CSV 原始資料 |
 | `Sources/mtk-viewer` | 觸點視覺化視窗 |
@@ -94,4 +96,4 @@ ABI 規則：`multitouchkit.h` 的結構欄位只能附加在尾端；改動時�
 
 ## 狀態
 
-第一階段（核心、三種呼叫方式、Unity 套件）已完成；尚待使用者在實機與 Unity 內驗證的項目、以及後續的系統層手勢合成，見 [docs/PRE_ANALYSIS.md](docs/PRE_ANALYSIS.md) 第 5 節。
+第一階段（核心、三種呼叫方式、Unity 套件）已完成，系統層手勢合成待實機測試；尚待使用者在實機與 Unity 內驗證的項目見 [docs/PRE_ANALYSIS.md](docs/PRE_ANALYSIS.md) 第 5 節。

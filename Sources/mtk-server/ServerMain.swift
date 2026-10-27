@@ -2,6 +2,7 @@
 import CoreGraphics
 import Foundation
 import MultiTouchKit
+import MultiTouchKitGestures
 
 struct ServerOptions {
     var udpTargets = ["127.0.0.1:7777"]
@@ -12,7 +13,16 @@ struct ServerOptions {
     var vendorID: Int?
     var productID: Int?
     var simulate = false
+    var simulatePattern = SimulatedTouchSource.Pattern.drums
     var verbose = false
+    var gestures = false
+    var gesturesDryRun = false
+    var gesturesSwipe = SwipeMode.keys
+    var gesturesExclude: Set<String> = []
+    var gesturesLog = false
+    var gesturesRotationGain: Double?
+    var gesturesMagnifyExponent: Double?
+    var gesturesMomentumGain: Double?
     var display = DisplaySelector.environment ?? .automatic
 
     static let usage = """
@@ -30,7 +40,18 @@ struct ServerOptions {
                         例：edid:6474:aa15、name:Sculptor,size:1920x1080（格式見 docs/server-protocol.md）
       --list-displays   列出顯示器後離開
       --simulate        使用模擬觸控（不需要硬體）
+      --simulate-pattern drums|gestures  模擬觸控的模式（隱含 --simulate；預設 drums）。
+                        gestures：每 12 秒依序做出各種手勢，搭配 --gestures 驗證辨識
       --verbose         印出每個觸控事件
+      --gestures        把觸控合成為系統操作（點擊、拖曳、右鍵、捲動、縮放、旋轉、多指滑動），
+                        同時照常廣播 10 點；需要「輔助使用」權限（見 docs/gestures.md）
+      --gestures-dry-run  只辨識並印出手勢、不送事件（隱含 --gestures；--simulate 時一律為 dry-run）
+      --gestures-swipe dock|keys  三／四指滑動的送出方式（預設 keys：Control＋方向鍵；dock：跟手的 Dock 手勢，實驗性）
+      --gestures-exclude BUNDLE_ID[,…]  這些 App 在前景時暫停手勢（例：com.unity3d.UnityEditor5.x）
+      --gestures-log    送出事件時也印出手勢摘要（與 dry-run 相同格式，標籤為 [手勢]）
+      --gestures-rotation-gain X     旋轉增益（送出角度 = 手指角度 × X，預設 1.5）
+      --gestures-magnify-exponent X  縮放增益（送出倍率 = 指距倍率^X，預設 0.6；1 = 等比例）
+      --gestures-momentum-gain X     捲動慣性距離倍數（預設 1；2 = 滑行約兩倍遠）
     """
 
     static func parse(_ arguments: [String]) -> ServerOptions {
@@ -73,13 +94,41 @@ struct ServerOptions {
                 for d in DisplayLocator.onlineDisplays() { print(d) }
                 exit(0)
             case "--simulate": o.simulate = true
+            case "--simulate-pattern":
+                guard let pattern = it.next().flatMap(SimulatedTouchSource.Pattern.init(rawValue:)) else {
+                    fail("--simulate-pattern 需要 " + SimulatedTouchSource.Pattern.allCases.map(\.rawValue).joined(separator: " 或 "))
+                }
+                o.simulate = true
+                o.simulatePattern = pattern
             case "--verbose": o.verbose = true
+            case "--gestures": o.gestures = true
+            case "--gestures-dry-run": o.gestures = true; o.gesturesDryRun = true
+            case "--gestures-swipe":
+                guard let mode = it.next().flatMap(SwipeMode.init(rawValue:)) else { fail("--gestures-swipe 需要 dock 或 keys") }
+                o.gesturesSwipe = mode
+            case "--gestures-exclude":
+                guard let list = it.next(), !list.isEmpty else { fail("--gestures-exclude 需要 bundle ID") }
+                o.gesturesExclude.formUnion(list.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+            case "--gestures-log": o.gesturesLog = true
+            case "--gestures-rotation-gain":
+                guard let v = it.next().flatMap(Double.init), v > 0 else { fail("--gestures-rotation-gain 需要大於 0 的數字") }
+                o.gesturesRotationGain = v
+            case "--gestures-magnify-exponent":
+                guard let v = it.next().flatMap(Double.init), v > 0 else { fail("--gestures-magnify-exponent 需要大於 0 的數字") }
+                o.gesturesMagnifyExponent = v
+            case "--gestures-momentum-gain":
+                guard let v = it.next().flatMap(Double.init), v > 0 else { fail("--gestures-momentum-gain 需要大於 0 的數字") }
+                o.gesturesMomentumGain = v
             case "--help", "-h":
                 print(usage)
                 exit(0)
             default:
                 fail("未知選項：\(a)")
             }
+        }
+        if !o.gestures && (o.gesturesSwipe != .keys || !o.gesturesExclude.isEmpty || o.gesturesLog
+                           || o.gesturesRotationGain != nil || o.gesturesMagnifyExponent != nil || o.gesturesMomentumGain != nil) {
+            print("注意：--gestures-* 選項需搭配 --gestures 才會生效")
         }
         return o
     }
@@ -91,7 +140,8 @@ struct ServerCommand {
         setvbuf(stdout, nil, _IOLBF, 0)
         let server = ServerRuntime(options: ServerOptions.parse(Array(CommandLine.arguments.dropFirst())))
         server.start()
-        withExtendedLifetime(server) { dispatchMain() }
+        // 用 RunLoop（而非 dispatchMain）：NSWorkspace 的前景 App 通知需要主執行緒的 run loop
+        withExtendedLifetime(server) { RunLoop.main.run() }
     }
 }
 
@@ -107,6 +157,7 @@ final class ServerRuntime: @unchecked Sendable {
     private var webSocket: WebSocketHub?
     private var active: [UInt64: Touch] = [:]
     private var signalSources: [DispatchSourceSignal] = []
+    private var gestures: GestureController?
     /// 觸控螢幕所在的顯示器（在主執行緒解析，才拿得到名稱）
     private let displayLock = NSLock()
     private var _display: DisplayInfo?
@@ -115,7 +166,7 @@ final class ServerRuntime: @unchecked Sendable {
     init(options: ServerOptions) {
         self.options = options
         if options.simulate {
-            let source = SimulatedTouchSource()
+            let source = SimulatedTouchSource(pattern: options.simulatePattern)
             simulator = source
             queue = source.queue
         } else {
@@ -161,6 +212,8 @@ final class ServerRuntime: @unchecked Sendable {
             }
         }
 
+        if options.gestures { startGestures() }
+
         if let simulator {
             simulator.frameHandler = { [self] in handle($0) }
             print("使用模擬觸控來源")
@@ -199,7 +252,46 @@ final class ServerRuntime: @unchecked Sendable {
         }
     }
 
+    private func startGestures() {
+        var dryRun = options.gesturesDryRun
+        if options.simulate && !dryRun {
+            dryRun = true
+            print("手勢：--simulate 時一律為 dry-run（模擬觸控會在桌面上到處點擊），只印出辨識結果")
+        }
+        let output: GestureOutput
+        if dryRun {
+            output = LoggingGestureOutput(swipeMode: options.gesturesSwipe) { print($0) }
+        } else {
+            let events = CGEventGestureOutput(swipeMode: options.gesturesSwipe)
+            output = options.gesturesLog
+                ? CombinedGestureOutput([events, LoggingGestureOutput(label: "手勢", swipeMode: options.gesturesSwipe) { print($0) }])
+                : events
+            if !CGEventGestureOutput.isTrusted(prompt: true) {
+                print("""
+                手勢：尚未取得「輔助使用」權限，系統會丟棄合成的事件。
+                  請到 系統設定 → 隱私權與安全性 → 輔助使用，允許執行 mtk-server 的 App（終端機或 mtk-server 本身），然後重新啟動。
+                """)
+            }
+        }
+        var configuration = GestureController.Configuration()
+        configuration.excludedBundleIDs = options.gesturesExclude
+        if let v = options.gesturesRotationGain { configuration.recognizer.rotationGain = v }
+        if let v = options.gesturesMagnifyExponent { configuration.recognizer.magnifyExponent = v }
+        // 慣性距離 ≈ 速度 ÷ friction，所以距離倍數 = friction 的倒數倍
+        if let v = options.gesturesMomentumGain { configuration.recognizer.momentumFriction /= v }
+        let controller = GestureController(configuration: configuration, queue: queue, output: output)
+        MainActor.assumeIsolated { controller.startObservingFrontmostApp() }
+        gestures = controller
+        var notes = [dryRun ? "dry-run" : "送出系統事件", "三／四指滑動：\(options.gesturesSwipe.rawValue)"]
+        if options.gesturesLog && !dryRun { notes.append("記錄手勢") }
+        notes.append(String(format: "旋轉增益 %.2g、縮放增益 %.2g、慣性倍數 %.2g", configuration.recognizer.rotationGain,
+                            configuration.recognizer.magnifyExponent, options.gesturesMomentumGain ?? 1))
+        if !options.gesturesExclude.isEmpty { notes.append("排除 \(options.gesturesExclude.sorted().joined(separator: ", "))") }
+        print("手勢合成：" + notes.joined(separator: "、"))
+    }
+
     private func handle(_ frame: TouchFrame) {
+        gestures?.handle(frame)
         for t in frame.touches {
             if t.phase.isTerminal { active[t.id] = nil } else { active[t.id] = t }
         }
@@ -227,6 +319,7 @@ final class ServerRuntime: @unchecked Sendable {
         let match = DisplayLocator.resolve(options.display, panel: devices.first)
         let previous = display
         displayLock.withLock { _display = match?.display }
+        gestures?.displayID = match?.display.id
         guard match?.display != previous || previous == nil else { return }
         if let match {
             print("觸控對應顯示器：\(match.display)（\(match.note)）")
@@ -241,7 +334,9 @@ final class ServerRuntime: @unchecked Sendable {
         case .added(let info):
             message = TouchJSON.device(info, event: "added")
             DispatchQueue.main.async { [self] in resolveDisplay() }
-        case .removed(let info): message = TouchJSON.device(info, event: "removed")
+        case .removed(let info):
+            message = TouchJSON.device(info, event: "removed")
+            gestures?.cancel()
         case .reinitialized(let info): message = TouchJSON.device(info, event: "reinitialized")
         }
         let data = Data(message.utf8)
