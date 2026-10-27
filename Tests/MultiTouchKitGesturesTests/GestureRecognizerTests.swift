@@ -83,19 +83,48 @@ struct Driver {
         #expect(!events.contains { if case .mouseDown(.right, _, _) = $0 { true } else { false } })
     }
 
-    @Test func longPressIsRightClick() {
+    @Test func longPressIsRightClickOnRelease() {
         var d = Driver()
-        d.frame([(1, 300, 300, true)])
-        d.tick(for: 0.5)
-        #expect(d.take().isEmpty)
-        d.tick(for: 0.2)
+        for _ in 0..<90 { d.frame([(1, 300, 300, true)]) }   // 按住 0.72 秒
+        #expect(d.take().isEmpty)                             // 按住期間不送事件
+        d.frame([(1, 301, 300, false)])
         #expect(d.take() == [.mouseDown(.right, CGPoint(x: 300, y: 300), clickCount: 1),
                              .mouseUp(.right, CGPoint(x: 300, y: 300), clickCount: 1)])
-        // 長按後移動與放開都不再產生事件
-        d.frame([(1, 400, 300, true)])
-        d.frame([(1, 400, 300, false)])
-        #expect(d.take().isEmpty)
         #expect(d.recognizer.isIdle)
+        #expect(!d.recognizer.needsTick)
+    }
+
+    @Test func longHoldThenMoveIsDragNotRightClick() {
+        // 第 3 輪：慢速拖曳前手指先停留 → 只拖曳，不送右鍵
+        var d = Driver()
+        for _ in 0..<100 { d.frame([(1, 300, 300, true)]) }
+        for i in 1...60 { d.frame([(1, 300 + Double(i) * 2, 300, true)]) }
+        d.frame([(1, 420, 300, false)])
+        let events = d.take()
+        #expect(events.first == .mouseDown(.left, CGPoint(x: 300, y: 300), clickCount: 1))
+        #expect(events.last == .mouseUp(.left, CGPoint(x: 420, y: 300), clickCount: 1))
+        #expect(!events.contains { if case .mouseDown(.right, _, _) = $0 { true } else { false } })
+    }
+
+    @Test func longHoldThenSecondFingerIsTwoFingerGesture() {
+        // 第 3 輪：軸心指停超過 0.6 秒才放第二指旋轉 → 只有旋轉
+        var d = Driver()
+        for _ in 0..<100 { d.frame([(1, 500, 500, true)]) }
+        for i in 0...25 {
+            let a = -Double(i) * 2 * .pi / 180
+            d.frame([(1, 500, 500, true), (2, 500 + 150 * cos(a), 500 + 150 * sin(a), true)])
+        }
+        d.frame([(1, 500, 500, false), (2, 500, 350, false)])
+        let events = d.take()
+        #expect(!events.contains { if case .mouseDown = $0 { true } else { false } })
+        #expect(events.contains { if case .rotate(_, .began) = $0 { true } else { false } })
+    }
+
+    @Test func longPressWithSlowDriftIsStillRightClick() {
+        var d = Driver()
+        for i in 0..<90 { d.frame([(1, 300 + Double(i) * 0.3, 300, true)]) }  // 漂移 27 點
+        d.frame([(1, 327, 300, false)])
+        #expect(d.take().first == .mouseDown(.right, CGPoint(x: 300, y: 300), clickCount: 1))
     }
 
     @Test func twoFingerTapIsRightClickAtCentroid() {
@@ -510,5 +539,55 @@ struct Driver {
         d.frame([(1, 412, 308, true), (2, 512, 308, true)])
         d.frame([(1, 412, 308, false), (2, 512, 308, false)])
         #expect(!d.take().contains { if case .scroll = $0 { true } else { false } })
+    }
+}
+
+/// 第 3 輪實機 dry-run
+@Suite struct RoundThreeTests {
+    @Test func pinchStartingWithSmallTwistIsMagnifyPrimary() {
+        // 兩指距離 90 點開始張開，前 100 ms 角度抖了 +13°（切向只有約 20 點），之後張開到 300 點
+        var d = Driver()
+        for i in 0...40 {
+            let k = Double(i) / 40
+            let twist = (i <= 12 ? Double(i) / 12 * 13 : 13 - Double(i - 12) / 28 * 20) * .pi / 180
+            let r = 45 + 105 * k
+            d.frame([(1, 500 - r * cos(-twist), 500 - r * sin(-twist), true), (2, 500 + r * cos(-twist), 500 + r * sin(-twist), true)])
+        }
+        d.frame([(1, 350, 500, false), (2, 650, 500, false)])
+        let events = d.take()
+        let firstTransform = events.first { if case .magnify = $0 { true } else if case .rotate = $0 { true } else { false } }
+        #expect(firstTransform.map { if case .magnify(_, .began) = $0 { true } else { false } } == true)
+        #expect(!events.contains { if case .rotate = $0 { true } else { false } })
+    }
+
+    @Test func scrollSurvivesBriefFingerLoss() {
+        // 兩指往右拖 400 點，中途其中一指失去接觸 40 ms 後以新的 ID 重新落下
+        var d = Driver()
+        var x = 300.0
+        for _ in 0..<15 { x += 8; d.frame([(1, x, 500, true), (2, x + 100, 520, true)]) }
+        d.frame([(1, x, 500, true), (2, x + 100, 520, false)])
+        for _ in 0..<5 { x += 8; d.frame([(1, x, 500, true)]) }
+        for _ in 0..<30 { x += 8; d.frame([(1, x, 500, true), (3, x + 100, 520, true)]) }
+        d.frame([(1, x, 500, false), (3, x + 100, 520, false)])
+        let events = d.take()
+        let ended = events.filter { if case .scroll(_, _, .ended) = $0 { true } else { false } }
+        #expect(ended.count == 1)
+        let dx = events.reduce(0.0) { if case .scroll(let v, _, _) = $1 { $0 + v } else { $0 } }
+        #expect(dx > 350)
+        #expect(events.contains(.momentum(dx: 0, dy: 0, phase: .began)))
+    }
+
+    @Test func liftingOneFingerForLongEndsScroll() {
+        // 一指離開超過 0.15 秒：結束捲動，剩下的手指不再捲動
+        var d = Driver()
+        for i in 0..<15 { d.frame([(1, 300 + Double(i) * 8, 500, true), (2, 400 + Double(i) * 8, 500, true)]) }
+        d.frame([(1, 420, 500, true), (2, 520, 500, false)])
+        for i in 0..<40 { d.frame([(1, 420 + Double(i) * 8, 500, true)]) }
+        d.frame([(1, 740, 500, false)])
+        let events = d.take()
+        #expect(events.filter { if case .scroll(_, _, .ended) = $0 { true } else { false } }.count == 1)
+        let dx = events.reduce(0.0) { if case .scroll(let v, _, _) = $1 { $0 + v } else { $0 } }
+        #expect(dx < 300)
+        #expect(!events.contains { if case .mouseDown = $0 { true } else { false } })
     }
 }
