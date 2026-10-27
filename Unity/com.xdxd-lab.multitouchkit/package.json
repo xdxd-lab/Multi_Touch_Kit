@@ -6,7 +6,7 @@
   "unity": "2022.3",
   "author": {
     "name": "xdxd-lab",
-    "url": "https://github.com/xdxd-lab/Multi_Touch_Kit"
+    "url": "https://github.com/xdxd-lab/multi_touch_kit"
   },
   "keywords": ["touch", "multitouch", "macos", "hid", "rhythm"],
   "samples": [
