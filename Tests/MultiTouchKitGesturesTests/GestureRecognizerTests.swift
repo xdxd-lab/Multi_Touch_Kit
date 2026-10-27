@@ -247,3 +247,119 @@ struct Driver {
         #expect(swipe(fingers: 3, dx: 20, dy: 0).isEmpty)
     }
 }
+
+/// 2026-10-28 實機 dry-run 回報的問題（雙指旋轉被當成捲動、捏合時誤送旋轉）
+@Suite struct TwoFingerDisambiguationTests {
+    func run(_ path: [(CGPoint, CGPoint)]) -> [GestureEvent] {
+        var d = Driver()
+        for (p, q) in path { d.frame([(1, p.x, p.y, true), (2, q.x, q.y, true)]) }
+        d.frame([(1, path.last!.0.x, path.last!.0.y, false), (2, path.last!.1.x, path.last!.1.y, false)])
+        return d.take()
+    }
+
+    func has(_ events: [GestureEvent], _ match: (GestureEvent) -> Bool) -> Bool { events.contains(where: match) }
+    func isScroll(_ e: GestureEvent) -> Bool { if case .scroll = e { true } else { false } }
+    func isRotate(_ e: GestureEvent) -> Bool { if case .rotate = e { true } else { false } }
+    func isMagnify(_ e: GestureEvent) -> Bool { if case .magnify = e { true } else { false } }
+    func totalRotation(_ events: [GestureEvent]) -> Double {
+        events.reduce(0) { if case .rotate(let deg, _) = $1 { $0 + deg } else { $0 } }
+    }
+
+    @Test func pivotRotationAroundOneFingerIsRotation() {
+        // 一指固定、另一指以 150 點半徑繞它轉 45°（質心也會移動約 57 點）
+        let pivot = CGPoint(x: 500, y: 500)
+        let path = (0...30).map { i -> (CGPoint, CGPoint) in
+            let a = -Double(i) * 1.5 * .pi / 180
+            return (pivot, CGPoint(x: pivot.x + 150 * cos(a), y: pivot.y + 150 * sin(a)))
+        }
+        let events = run(path)
+        #expect(!has(events, isScroll))
+        #expect(!has(events, isMagnify))
+        #expect(abs(totalRotation(events) - 45) < 0.5)
+    }
+
+    @Test func rotationWithDriftingCenterIsRotation() {
+        // 兩指轉 40° 的同時整體往右漂移 30 點
+        let path = (0...20).map { i -> (CGPoint, CGPoint) in
+            let a = -Double(i) * 2 * .pi / 180
+            let c = CGPoint(x: 500 + 1.5 * Double(i), y: 500)
+            return (CGPoint(x: c.x - 90 * cos(a), y: c.y - 90 * sin(a)), CGPoint(x: c.x + 90 * cos(a), y: c.y + 90 * sin(a)))
+        }
+        let events = run(path)
+        #expect(!has(events, isScroll))
+        #expect(abs(totalRotation(events) - 40) < 0.5)
+    }
+
+    @Test func pinchWithNaturalTwistDoesNotRotate() {
+        // 張開 100 → 300 點，過程中手指自然歪 8°（低於次要門檻 24°）
+        let path = (0...20).map { i -> (CGPoint, CGPoint) in
+            let k = Double(i) / 20
+            let r = 50 + 100 * k
+            let a = -k * 8 * .pi / 180
+            return (CGPoint(x: 500 - r * cos(a), y: 500 - r * sin(a)), CGPoint(x: 500 + r * cos(a), y: 500 + r * sin(a)))
+        }
+        let events = run(path)
+        #expect(has(events, isMagnify))
+        #expect(!has(events, isRotate))
+        #expect(!has(events, isScroll))
+    }
+
+    @Test func pinchInToTouchingFingersIgnoresAngleNoise() {
+        // 捏合到兩指幾乎碰在一起，最後幾個 frame 角度亂跳
+        var path = (0...15).map { i -> (CGPoint, CGPoint) in
+            let r = 120 - 7 * Double(i)
+            return (CGPoint(x: 500 - r, y: 500), CGPoint(x: 500 + r, y: 500))
+        }
+        path += [(CGPoint(x: 490, y: 505), CGPoint(x: 505, y: 492)), (CGPoint(x: 500, y: 490), CGPoint(x: 497, y: 506)),
+                 (CGPoint(x: 505, y: 498), CGPoint(x: 492, y: 500))]
+        let events = run(path)
+        #expect(has(events) { if case .magnify(let m, .began) = $0 { m < 0 } else { false } })
+        #expect(!has(events, isRotate))
+    }
+
+    @Test func largeRotationDuringPinchAlsoRotates() {
+        // 縮放為主，但同時轉了 60°（超過次要門檻）→ 兩者都送
+        let path = (0...30).map { i -> (CGPoint, CGPoint) in
+            let k = Double(i) / 30
+            let r = 60 + 120 * k
+            let a = -k * 60 * .pi / 180
+            return (CGPoint(x: 500 - r * cos(a), y: 500 - r * sin(a)), CGPoint(x: 500 + r * cos(a), y: 500 + r * sin(a)))
+        }
+        let events = run(path)
+        #expect(has(events, isMagnify))
+        #expect(has(events, isRotate))
+        #expect(totalRotation(events) > 20)
+    }
+
+    @Test func slightlyDivergingFingersStillScroll() {
+        // 兩指往下 150 點，指間距同時變寬 20 點（相對位移小於重心位移）
+        let path = (0...20).map { i -> (CGPoint, CGPoint) in
+            let k = Double(i) / 20
+            return (CGPoint(x: 400 - 10 * k, y: 300 + 150 * k), CGPoint(x: 500 + 10 * k, y: 300 + 150 * k))
+        }
+        let events = run(path)
+        #expect(has(events, isScroll))
+        #expect(!has(events, isMagnify))
+        #expect(!has(events, isRotate))
+    }
+}
+
+@Suite struct DryRunLogTests {
+    @Test func logsTotalsAtEnd() {
+        nonisolated(unsafe) var lines: [String] = []
+        nonisolated(unsafe) var now = 0.0
+        let output = LoggingGestureOutput(clock: { now }) { lines.append($0) }
+        output.send([.scroll(dx: 1, dy: 10, phase: .began), .scroll(dx: 1, dy: 20, phase: .changed)])
+        now = 0.25
+        output.send([.scroll(dx: 0, dy: 0, phase: .ended), .momentum(dx: 0, dy: 0, phase: .began),
+                     .momentum(dx: 0, dy: 30, phase: .changed)])
+        now = 0.75
+        output.send([.momentum(dx: 0, dy: 5, phase: .ended),
+                     .magnify(0.1, phase: .began), .magnify(0.1, phase: .changed), .magnify(0, phase: .ended),
+                     .rotate(degrees: 5, phase: .began), .rotate(degrees: 10, phase: .changed), .rotate(degrees: 0, phase: .ended)])
+        #expect(lines.contains("[手勢 dry-run] scroll ended：共 dx=2.0 dy=30.0 點、3 筆、250 ms"))
+        #expect(lines.contains("[手勢 dry-run] momentum ended：慣性共 dx=0.0 dy=35.0 點、3 筆、500 ms"))
+        #expect(lines.contains("[手勢 dry-run] magnify ended：總倍率 ×1.210、0 ms"))
+        #expect(lines.contains("[手勢 dry-run] rotate ended：共 15.0°（逆時針為正）、0 ms"))
+    }
+}

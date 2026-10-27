@@ -62,22 +62,84 @@ public enum SwipeShortcut: Sendable, Equatable, CustomStringConvertible {
     }
 }
 
-/// dry-run：只把事件交給 log，不送出
+/// dry-run：只把事件交給 log，不送出。連續手勢不逐筆印出，結束時印出累計量（位移、倍率、角度、持續時間）。
 public final class LoggingGestureOutput: GestureOutput, @unchecked Sendable {
     private let log: (String) -> Void
     private let swipeMode: SwipeMode
+    private let clock: () -> Double
+    private var scroll = Accumulator()
+    private var momentum = Accumulator()
+    private var magnifyScale = 1.0
+    private var magnifyStart = 0.0
+    private var rotation = 0.0
+    private var rotationStart = 0.0
 
-    public init(swipeMode: SwipeMode = .keys, log: @escaping (String) -> Void) {
+    struct Accumulator {
+        var dx = 0.0
+        var dy = 0.0
+        var count = 0
+        var start = 0.0
+
+        mutating func reset(at time: Double) { self = Accumulator(start: time) }
+        mutating func add(_ x: Double, _ y: Double) {
+            dx += x
+            dy += y
+            count += 1
+        }
+    }
+
+    /// - Parameter clock: 目前時間（秒），用來計算持續時間；測試時可替換
+    public init(swipeMode: SwipeMode = .keys, clock: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime },
+                log: @escaping (String) -> Void) {
         self.swipeMode = swipeMode
+        self.clock = clock
         self.log = log
     }
 
     public func send(_ events: [GestureEvent]) {
+        let now = clock()
+        func ms(_ start: Double) -> String { String(format: "%.0f ms", (now - start) * 1000) }
+        func f(_ v: Double) -> String { String(format: "%.1f", v) }
         for e in events {
             switch e {
-            case .mouseDragged, .scroll(_, _, .changed), .momentum(_, _, .changed), .magnify(_, .changed),
-                 .rotate(_, .changed), .swipe(_, _, _, _, .changed):
-                continue // 連續更新不逐筆印出
+            case .mouseDragged:
+                continue
+            case .scroll(let dx, let dy, let phase):
+                if phase == .began { scroll.reset(at: now) }
+                scroll.add(dx, dy)
+                if phase == .began { log("[手勢 dry-run] \(e)") }
+                if phase == .ended || phase == .cancelled {
+                    log("[手勢 dry-run] scroll \(phase)：共 dx=\(f(scroll.dx)) dy=\(f(scroll.dy)) 點、\(scroll.count) 筆、\(ms(scroll.start))")
+                }
+            case .momentum(let dx, let dy, let phase):
+                if phase == .began { momentum.reset(at: now) }
+                momentum.add(dx, dy)
+                if phase == .began { log("[手勢 dry-run] \(e)") }
+                if phase == .ended {
+                    log("[手勢 dry-run] momentum ended：慣性共 dx=\(f(momentum.dx)) dy=\(f(momentum.dy)) 點、\(momentum.count) 筆、\(ms(momentum.start))")
+                }
+            case .magnify(let m, let phase):
+                if phase == .began {
+                    magnifyScale = 1
+                    magnifyStart = now
+                }
+                magnifyScale *= 1 + m
+                if phase == .began { log("[手勢 dry-run] \(e)") }
+                if phase == .ended || phase == .cancelled {
+                    log("[手勢 dry-run] magnify \(phase)：總倍率 ×\(String(format: "%.3f", magnifyScale))、\(ms(magnifyStart))")
+                }
+            case .rotate(let degrees, let phase):
+                if phase == .began {
+                    rotation = 0
+                    rotationStart = now
+                }
+                rotation += degrees
+                if phase == .began { log("[手勢 dry-run] \(e)") }
+                if phase == .ended || phase == .cancelled {
+                    log("[手勢 dry-run] rotate \(phase)：共 \(f(rotation))°（逆時針為正）、\(ms(rotationStart))")
+                }
+            case .swipe(_, _, _, _, .changed):
+                continue
             case .swipe(let axis, let progress, let velocity, _, .ended) where swipeMode == .keys:
                 let shortcut = SwipeShortcut.resolve(axis: axis, progress: progress, velocity: velocity)
                 log("[手勢 dry-run] \(e) → \(shortcut.map(\.description) ?? "不觸發")")

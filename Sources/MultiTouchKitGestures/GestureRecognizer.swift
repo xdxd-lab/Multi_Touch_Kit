@@ -30,6 +30,13 @@ public struct GestureRecognizer: Sendable {
         public var pinchThreshold: Double = 30
         /// 兩指角度變化超過此值開始旋轉（度）
         public var rotationThreshold: Double = 12
+        /// 兩指間距小於此值時角度雜訊太大，不判斷也不送出旋轉（點）
+        public var rotationMinimumDistance: Double = 60
+        /// 兩指相對位移（指間向量的變化）小於重心位移的這個比例才算捲動；
+        /// 以一指為軸旋轉或單指捏合時，相對位移約為重心位移的 2 倍，不會被當成捲動
+        public var scrollMaximumRelativeMotion: Double = 0.8
+        /// 縮放與旋轉先決定主要的一個；另一個要從決定當下再超過門檻的這個倍數才會一起送出
+        public var secondaryTransformFactor: Double = 2
         /// 三指以上重心移動超過此距離開始 swipe（點）
         public var swipeThreshold: Double = 50
         /// swipe progress = 1 所需的手指位移（點）
@@ -52,7 +59,8 @@ public struct GestureRecognizer: Sendable {
         case pending(start: Double, fingers: Int)
         case pointer(id: UInt64, clickCount: Int, last: CGPoint)
         case scroll(ids: [UInt64], last: CGPoint, samples: [Sample])
-        case transform(a: UInt64, b: UInt64, lastDistance: Double, lastAngle: Double, magnifying: Bool, rotating: Bool)
+        case transform(a: UInt64, b: UInt64, commitDistance: Double, commitAngle: Double,
+                       lastDistance: Double, lastAngle: Double, magnifying: Bool, rotating: Bool)
         case swipe(axis: SwipeAxis, ids: [UInt64], origin: CGPoint, lastProgress: Double, samples: [Sample])
         /// 手勢已結束（或被忽略），等所有手指離開
         case waitLift
@@ -180,7 +188,8 @@ public struct GestureRecognizer: Sendable {
                 state = .scroll(ids: ids, last: c, samples: samples)
             }
 
-        case .transform(let a, let b, let lastDistance, let lastAngle, var magnifying, var rotating):
+        case .transform(let a, let b, let commitDistance, let commitAngle, let lastDistance, let lastAngle,
+                        var magnifying, var rotating):
             guard let pa = down[a], let pb = down[b] else {
                 if magnifying { out.append(.magnify(0, phase: .ended)) }
                 if rotating { out.append(.rotate(degrees: 0, phase: .ended)) }
@@ -188,13 +197,15 @@ public struct GestureRecognizer: Sendable {
                 break
             }
             let d = distance(pa, pb)
-            let angle = self.angle(pa, pb)
-            let (sa, sb) = (starts[a]!, starts[b]!)
+            // 指間距太小時角度不可靠：沿用上一個角度（不送旋轉）
+            let angleUsable = d >= configuration.rotationMinimumDistance
+            let angle = angleUsable ? self.angle(pa, pb) : lastAngle
+            let factor = configuration.secondaryTransformFactor
             if lastDistance > 0 {
                 let m = d / lastDistance - 1
                 if magnifying {
                     if m != 0 { out.append(.magnify(m, phase: .changed)) }
-                } else if abs(d - distance(sa, sb)) >= configuration.pinchThreshold {
+                } else if abs(d - commitDistance) >= configuration.pinchThreshold * factor {
                     magnifying = true
                     out.append(.magnify(m, phase: .began))
                 }
@@ -202,11 +213,12 @@ public struct GestureRecognizer: Sendable {
             let turn = -normalizedDegrees(angle - lastAngle)
             if rotating {
                 if turn != 0 { out.append(.rotate(degrees: turn, phase: .changed)) }
-            } else if abs(normalizedDegrees(angle - self.angle(sa, sb))) >= configuration.rotationThreshold {
+            } else if angleUsable, abs(normalizedDegrees(angle - commitAngle)) >= configuration.rotationThreshold * factor {
                 rotating = true
                 out.append(.rotate(degrees: turn, phase: .began))
             }
-            state = .transform(a: a, b: b, lastDistance: d, lastAngle: angle, magnifying: magnifying, rotating: rotating)
+            state = .transform(a: a, b: b, commitDistance: commitDistance, commitAngle: commitAngle,
+                               lastDistance: d, lastAngle: angle, magnifying: magnifying, rotating: rotating)
 
         case .swipe(let axis, let ids, let origin, let lastProgress, var samples):
             let positions = ids.compactMap { down[$0] ?? lifted[$0] }
@@ -274,7 +286,7 @@ public struct GestureRecognizer: Sendable {
             out.append(.mouseUp(.left, last, clickCount: clickCount))
         case .scroll:
             out.append(.scroll(dx: 0, dy: 0, phase: .cancelled))
-        case .transform(_, _, _, _, let magnifying, let rotating):
+        case .transform(_, _, _, _, _, _, let magnifying, let rotating):
             if magnifying { out.append(.magnify(0, phase: .cancelled)) }
             if rotating { out.append(.rotate(degrees: 0, phase: .cancelled)) }
         case .swipe(let axis, let ids, _, let progress, _):
@@ -324,21 +336,27 @@ public struct GestureRecognizer: Sendable {
             let (sa, sb, pa, pb) = (starts[a]!, starts[b]!, down[a]!, down[b]!)
             let c0 = centroid([sa, sb])
             let c1 = centroid([pa, pb])
+            // 兩指運動拆成：重心平移（捲動）與指間向量的變化（縮放＋旋轉）
             let move = distance(c0, c1)
-            let stretch = abs(distance(pa, pb) - distance(sa, sb))
-            let turn = abs(normalizedDegrees(angle(pa, pb) - angle(sa, sb)))
-            if move >= configuration.scrollThreshold && move > stretch {
+            let relative = hypot((pb.x - pa.x) - (sb.x - sa.x), (pb.y - pa.y) - (sb.y - sa.y))
+            if move >= configuration.scrollThreshold && relative < move * configuration.scrollMaximumRelativeMotion {
                 state = .scroll(ids: [a, b], last: c1, samples: history(of: [a, b], now: time))
                 return [.pointer(c0), .scroll(dx: c1.x - c0.x, dy: c1.y - c0.y, phase: .began)]
             }
-            let magnifying = stretch >= configuration.pinchThreshold
-            let rotating = turn >= configuration.rotationThreshold
+            let (d0, d1) = (distance(sa, sb), distance(pa, pb))
+            let stretch = abs(d1 - d0)
+            let angleUsable = min(d0, d1) >= configuration.rotationMinimumDistance
+            let turnDegrees = angleUsable ? normalizedDegrees(angle(pa, pb) - angle(sa, sb)) : 0
+            // 旋轉造成的切向位移，與開合的徑向位移比較誰是主要動作
+            let arc = min(d0, d1) * abs(turnDegrees) * .pi / 180
+            let magnifying = stretch >= configuration.pinchThreshold && stretch >= arc
+            let rotating = !magnifying && abs(turnDegrees) >= configuration.rotationThreshold
             guard magnifying || rotating else { return [] }
             var out: [GestureEvent] = [.pointer(c0)]
-            if magnifying { out.append(.magnify(distance(pa, pb) / distance(sa, sb) - 1, phase: .began)) }
-            if rotating { out.append(.rotate(degrees: -normalizedDegrees(angle(pa, pb) - angle(sa, sb)), phase: .began)) }
-            state = .transform(a: a, b: b, lastDistance: distance(pa, pb), lastAngle: angle(pa, pb),
-                               magnifying: magnifying, rotating: rotating)
+            if magnifying { out.append(.magnify(d1 / d0 - 1, phase: .began)) }
+            if rotating { out.append(.rotate(degrees: -turnDegrees, phase: .began)) }
+            state = .transform(a: a, b: b, commitDistance: d1, commitAngle: angle(pa, pb),
+                               lastDistance: d1, lastAngle: angle(pa, pb), magnifying: magnifying, rotating: rotating)
             return out
         }
         // 三指以上

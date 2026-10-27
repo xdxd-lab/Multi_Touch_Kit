@@ -30,10 +30,12 @@ scripts/install-server-agent.sh --gestures
 | 兩指點擊 | 右鍵點擊（兩指中點） | 公開 API |
 | 兩指平移 | 捲動，內容跟著手指走；放開時依速度產生慣性捲動 | 公開 API（像素捲動＋scroll／momentum phase） |
 | 兩指開合 | 縮放（觸控板的 pinch） | **未公開** gesture 事件 |
-| 兩指轉動 | 旋轉（可與縮放同時） | **未公開** gesture 事件 |
+| 兩指轉動（兩指繞中心轉，或一指為軸另一指繞著轉） | 旋轉 | **未公開** gesture 事件 |
 | 三／四指左右滑 | 切換桌面（Space）／全螢幕 App | 預設 Control＋←／→；`--gestures-swipe dock` 為未公開 Dock 手勢 |
 | 三／四指往上滑 | Mission Control | 預設 Control＋↑ |
 | 三／四指往下滑 | App Exposé | 預設 Control＋↓ |
+
+兩指手勢的判定：把兩指運動拆成「重心平移」與「指間向量的變化」。重心移動超過 12 點、且指間向量變化小於重心位移的 0.8 倍才算捲動；以一指為軸旋轉或單指捏合時，指間向量變化約為重心位移的 2 倍，不會被當成捲動。縮放與旋轉先依「開合的徑向位移」與「旋轉的切向位移」決定主要的一個，另一個要從決定當下再超過 2 倍門檻（縮放 60 點、旋轉 24°）才會一起送出；兩指間距小於 60 點時角度雜訊太大，不送旋轉。
 
 手指不會同時落下：第一指落下後 50 ms 內出現的手指算同一個手勢；手勢決定後新增的手指會被忽略，直到所有手指離開。捲動、縮放、旋轉前會先把游標移到兩指中點（系統把這些事件送給游標下方的視窗）。手指碰到螢幕會立刻停止慣性捲動。
 
@@ -48,6 +50,15 @@ scripts/install-server-agent.sh --gestures
 | `--simulate-pattern gestures` | 模擬觸控改為每 12 秒依序做出所有手勢（隱含 `--simulate`），用來驗證辨識；`drums` 為預設模式 |
 
 `--simulate`／`--simulate-pattern` 時**一律為 dry-run**，啟動時 log 會說明（模擬觸控會在桌面上到處點擊）。
+
+dry-run 的 log 不逐筆印出連續更新，而在結束時印出累計量，方便實機判讀，例如：
+
+```
+[手勢 dry-run] scroll ended：共 dx=0.0 dy=207.7 點、7 筆、48 ms
+[手勢 dry-run] momentum ended：慣性共 dx=0.0 dy=611.4 點、162 筆、1335 ms
+[手勢 dry-run] magnify ended：總倍率 ×2.960、739 ms
+[手勢 dry-run] rotate ended：共 59.4°（逆時針為正）、640 ms
+```
 
 `keys` 模式使用系統設定 → 鍵盤 → 鍵盤快速鍵 → Mission Control 的預設快速鍵；若被改掉或停用，請恢復預設或改用 `dock`。
 
@@ -115,6 +126,7 @@ manager.frameHandler = { gestures.handle($0) }
 | 旋轉（未公開） | ✅ 收到 `NSEvent.rotate`，`rotation` 與 `phase` 正確 | 同上 |
 | 左鍵／右鍵按下放開、clickCount | ✅ 收到 | 同上 |
 | 手勢辨識（全部手勢） | ✅ `--simulate-pattern gestures` 一個週期全部辨識正確，座標落在 MF156LR（全域 x 1920–3840） | dry-run |
+| 實機 dry-run（使用者觸碰，第 1 輪） | ✅ 點擊、雙擊、拖曳、長按右鍵、兩指點擊、捲動方向、縮放、三／四指四個方向；❌ 旋轉被當成捲動、捏合時多送 ±2° 旋轉 → 已修正判定（見上），待第 2 輪確認 | `mtk-server --gestures-dry-run` |
 | 實機觸碰下 Finder／Safari／預覽程式的實際反應 | ⏳ 待使用者測試 | |
 | Dock swipe（`dock` 模式）與方向正負號 | ⏳ 待使用者測試（實驗性；測試會開啟 Mission Control，未在使用者作業中自動測試） | |
 | `keys` 模式切換桌面／Mission Control | ⏳ 待使用者測試 | |
@@ -130,4 +142,4 @@ manager.frameHandler = { gestures.handle($0) }
 
 ## 參數調整
 
-門檻定義在 `GestureRecognizer.Configuration`（單位為點；MF156LR 約 5.6 點／mm）：點擊容許位移 14、等待其他手指 50 ms、長按 0.6 s、兩指點擊上限 0.35 s、雙擊間隔 0.45 s、捲動起始 12、縮放起始 30、旋轉起始 12°、多指滑動起始 50、滑動全程 450、慣性最低速度 150 點／秒。目前沒有命令列選項，需要時再提供。
+門檻定義在 `GestureRecognizer.Configuration`（單位為點；MF156LR 約 5.6 點／mm）：點擊容許位移 14、等待其他手指 50 ms、長按 0.6 s、兩指點擊上限 0.35 s、雙擊間隔 0.45 s、捲動起始 12（指間相對位移 < 0.8 倍重心位移）、縮放起始 30、旋轉起始 12°（指間距 ≥ 60）、次要縮放／旋轉 2 倍門檻、多指滑動起始 50、滑動全程 450、慣性最低速度 150 點／秒。目前沒有命令列選項，需要時再提供。
