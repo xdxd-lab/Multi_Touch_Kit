@@ -25,6 +25,9 @@ swift build -c release --product mtk-server
 | `--list-displays` | 列出顯示器（id、名稱、解析度、EDID、實體尺寸）後離開 |
 | `--simulate` | 使用模擬觸控（模擬面板尺寸沿用 MF156LR 的 309x174mm，`auto` 會選到與實機相同的顯示器） |
 | `--verbose` | 印出每個觸控事件 |
+| `--gestures` | 同時把觸控合成為系統操作（點擊、捲動、縮放等），見 [gestures.md](gestures.md) |
+| `--gestures-dry-run`／`--gestures-swipe dock\|keys`／`--gestures-exclude BUNDLE_ID[,…]` | 手勢選項，見 [gestures.md](gestures.md) |
+| `--simulate-pattern drums\|gestures` | 模擬觸控的模式（隱含 `--simulate`；預設 `drums`）。`gestures` 依序做出各種手勢（手勢一律 dry-run） |
 
 `Ctrl+C`（SIGINT／SIGTERM）會釋放裝置並結束。
 
