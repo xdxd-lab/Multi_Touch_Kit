@@ -81,7 +81,8 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
         }
 
         var screen = NSScreen.main ?? NSScreen.screens[0]
-        if let match = DisplayLocator.resolve(selector, panel: manager?.connectedDevices.first) {
+        let panel = simulator != nil ? SimulatedTouchSource.deviceInfo : manager?.connectedDevices.first
+        if let match = DisplayLocator.resolve(selector, panel: panel) {
             print("顯示器：\(match.display)（\(match.note)）")
             mapping.displayID = match.display.id
             if let s = NSScreen.screens.first(where: {

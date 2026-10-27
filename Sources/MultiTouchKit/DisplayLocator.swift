@@ -181,14 +181,20 @@ public enum DisplayLocator {
         let candidates = displays.filter(selector.matches)
         guard !candidates.isEmpty else { return nil }
         if selector.criteria.contains(.automatic) {
-            if let w = panel?.physicalWidthMillimeters, let h = panel?.physicalHeightMillimeters,
-               let best = closestBySize(candidates, panelWidth: w, panelHeight: h) {
-                return Match(display: best, note: String(format: "實體尺寸最接近觸控面板（%.0fx%.0fmm）", w, h))
+            let reason: String
+            if let w = panel?.physicalWidthMillimeters, let h = panel?.physicalHeightMillimeters {
+                if let best = closestBySize(candidates, panelWidth: w, panelHeight: h) {
+                    return Match(display: best, note: String(format: "實體尺寸最接近觸控面板（%.0fx%.0fmm）", w, h))
+                }
+                reason = String(format: "沒有顯示器的實體尺寸與觸控面板（%.0fx%.0fmm）相差在 30%% 內", w, h)
+            } else if panel == nil {
+                reason = "還沒有觸控裝置，無法依面板尺寸挑選"
+            } else {
+                reason = "觸控裝置沒有回報面板實體尺寸"
             }
-            if let main = candidates.first(where: \.isMain) {
-                return Match(display: main, note: "找不到尺寸相符的顯示器，使用主螢幕")
-            }
-            return Match(display: candidates[0], note: "找不到尺寸相符的顯示器")
+            let fallback = candidates.first(where: \.isMain) ?? candidates[0]
+            return Match(display: fallback, note: reason + (fallback.isMain ? "，使用主螢幕" : "")
+                + "；可用 --display／MTK_DISPLAY 明確指定（例如 edid:VVVV:MMMM）")
         }
         if candidates.count == 1 { return Match(display: candidates[0], note: "符合 \(selector)") }
         let ordered = candidates.sorted { ($0.isMain ? 1 : 0, $0.id) < ($1.isMain ? 1 : 0, $1.id) }

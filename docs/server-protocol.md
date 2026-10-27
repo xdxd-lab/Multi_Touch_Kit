@@ -23,7 +23,7 @@ swift build -c release --product mtk-server
 | `--shared` | 不獨占裝置（系統游標仍會跟著動） |
 | `--display SEL` | 觸控螢幕所在的顯示器，放在 hello 的 `display` 欄位（預設 `auto` 或環境變數 `MTK_DISPLAY`；格式見 [c-api.md 顯示器對應](c-api.md#顯示器對應)） |
 | `--list-displays` | 列出顯示器（id、名稱、解析度、EDID、實體尺寸）後離開 |
-| `--simulate` | 使用模擬觸控 |
+| `--simulate` | 使用模擬觸控（模擬面板尺寸沿用 MF156LR 的 309x174mm，`auto` 會選到與實機相同的顯示器） |
 | `--verbose` | 印出每個觸控事件 |
 
 `Ctrl+C`（SIGINT／SIGTERM）會釋放裝置並結束。

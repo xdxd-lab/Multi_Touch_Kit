@@ -211,6 +211,30 @@ import Testing
         #expect(resolve("auto") == 3)
     }
 
+    @Test func simulatedSourceMatchesSameDisplay() {
+        // mtk-server／mtk-viewer --simulate 用模擬來源的面板尺寸，應與實機選到同一台
+        #expect(resolve("auto", panel: SimulatedTouchSource.deviceInfo) == 2)
+    }
+
+    @Test func automaticFallbackExplainsReason() throws {
+        let none = try #require(DisplayLocator.resolve(.automatic, panel: nil, displays: displays))
+        #expect(none.display.id == 3)
+        #expect(none.note.contains("還沒有觸控裝置"))
+
+        var unknown = panel
+        unknown.physicalWidthMillimeters = nil
+        let noSize = try #require(DisplayLocator.resolve(.automatic, panel: unknown, displays: displays))
+        #expect(noSize.display.id == 3)
+        #expect(noSize.note.contains("沒有回報面板實體尺寸"))
+
+        var tiny = panel
+        tiny.physicalWidthMillimeters = 100
+        tiny.physicalHeightMillimeters = 60
+        let mismatch = try #require(DisplayLocator.resolve(.automatic, panel: tiny, displays: displays))
+        #expect(mismatch.display.id == 3)
+        #expect(mismatch.note.contains("30% 內"))
+    }
+
     @Test func explicitSelectorsDistinguishSameName() {
         #expect(resolve("edid:6474:aa15") == 2)
         #expect(resolve("edid:0x6474:0xA2D5") == 1)
