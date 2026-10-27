@@ -29,6 +29,19 @@ final class TouchDevice: @unchecked Sendable {
     private var opened = false
     private var activated = false
     private var lastReinit: UInt64 = 0
+    /// 有觸點時超過這麼久（秒）沒有任何報告就全部取消（USB 異常、控制器卡住）；0 = 關閉
+    var reportTimeout: Double {
+        get { reportMonitor.timeout }
+        set { reportMonitor.timeout = newValue }
+    }
+    private var reportMonitor = ReportTimeoutMonitor(timeout: 0.5)
+    private var reportWatchdog: DispatchSourceTimer?
+
+    /// 長時間完全不動的觸點視為誤觸並取消（見 MultiTouchManager.Configuration.staleTouchTimeout）
+    var stalePolicy: ContactTracker.StalePolicy {
+        get { tracker.stalePolicy }
+        set { tracker.stalePolicy = newValue }
+    }
 
     init?(id: Int, service: io_service_t, info: HIDServiceInfo, queue: DispatchQueue) throws {
         guard let device = IOHIDDeviceCreate(kCFAllocatorDefault, service) else { return nil }
@@ -96,6 +109,8 @@ final class TouchDevice: @unchecked Sendable {
 
     /// 停止接收並釋放所有介面（非同步完成）
     func cancel() {
+        reportWatchdog?.cancel()
+        reportWatchdog = nil
         for sibling in siblings.values { IOHIDDeviceCancel(sibling.device) }
         siblings.removeAll()
         if activated {
@@ -123,12 +138,44 @@ final class TouchDevice: @unchecked Sendable {
         guard length - skip >= layout.reportLength else { return }
         let parsed = layout.parse(UnsafeBufferPointer(start: report + skip, count: length - skip))
         guard let frame = assembler.add(parsed, timestamp: MultiTouchClock.nanoseconds(fromHostTime: hostTime)) else { return }
-        let touches = tracker.update(frame.contacts, allocateID: allocateTouchID)
+        reportMonitor.reportReceived(at: MultiTouchClock.now())
+        let touches = tracker.update(frame.contacts, at: frame.timestamp, allocateID: allocateTouchID)
+        for t in touches where t.phase == .cancelled {
+            log(String(format: "觸點 #%llu（contact %d）已 %.0f 秒幾乎不動，視為誤觸並取消（可能是線材或物體碰到面板）",
+                       t.id, t.contactID, tracker.stalePolicy.timeout))
+        }
+        updateReportWatchdog()
         // 閒置時的空報告不轉發
         guard !touches.isEmpty else { return }
         sequence += 1
         onFrame?(TouchFrame(deviceID: id, sequence: sequence, timestamp: frame.timestamp,
                             scanTime: parsed.scanTime, touches: touches))
+    }
+
+    /// 有觸點時每 0.25 秒檢查一次是否還有報告進來
+    private func updateReportWatchdog() {
+        if tracker.hasActiveTouches && reportTimeout > 0 {
+            guard reportWatchdog == nil else { return }
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now() + 0.25, repeating: 0.25, leeway: .milliseconds(20))
+            timer.setEventHandler { [weak self] in self?.checkReportTimeout() }
+            reportWatchdog = timer
+            timer.resume()
+        } else if let reportWatchdog {
+            reportWatchdog.cancel()
+            self.reportWatchdog = nil
+        }
+    }
+
+    private func checkReportTimeout() {
+        let now = MultiTouchClock.now()
+        guard reportMonitor.isExpired(at: now, hasActiveTouches: tracker.hasActiveTouches) else { return }
+        let silence = reportMonitor.silence(at: now)
+        if let frame = cancelTouches() {
+            log(String(format: "%@ 已 %.1f 秒沒有觸控報告，取消仍在螢幕上的 %d 個觸點", info.product, silence, frame.touches.count))
+            onFrame?(frame)
+        }
+        updateReportWatchdog()
     }
 
     // MARK: - 多點模式初始化

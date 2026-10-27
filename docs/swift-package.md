@@ -62,10 +62,13 @@ config.exclusive = true           // 獨占：系統游標不再跟著觸控移�
 config.initializeMultiTouchMode = true   // 讀 Contact Count Maximum、設 Device Mode（ILITEK 必須）
 config.seizeSiblingInterfaces = true     // 一併獨占同裝置的滑鼠相容介面
 config.retryInterval = 1.0        // 裝置被其他程式（例如 mtk-server）獨占時每秒重試；0 = 不重試
+config.staleTouchTimeout = 30     // 幾乎不動超過 30 秒的觸點視為誤觸並 cancelled（線材等）；0 = 關閉
+config.staleTouchTolerance = 0.003 // 「不動」的容許範圍（正規化座標）
+config.reportTimeout = 0.5        // 有觸點卻 0.5 秒沒有報告（放開遺失、USB 異常）→ 全部 cancelled
 let manager = MultiTouchManager(configuration: config)
 ```
 
-自動處理：裝置插拔（啟動後才接上也可以）、系統睡眠喚醒後重新初始化、控制器退回滑鼠模式時重新初始化。
+自動處理：裝置插拔（啟動後才接上也可以）、系統睡眠喚醒後重新初始化、控制器退回滑鼠模式時重新初始化、誤觸與放開遺失（見 [c-api.md 誤觸](c-api.md#誤觸長時間不動的觸點與放開遺失)）。
 
 ## 資料型別
 

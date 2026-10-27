@@ -50,7 +50,8 @@ typedef struct MTKConfig {
     int32_t init_multitouch;   /* 1 = 依 Windows 流程初始化多點模式（預設） */
     int32_t report_stationary; /* 0 = 事件佇列不放入 stationary 事件（預設） */
     int32_t queue_capacity;    /* 事件佇列容量，0 = 預設 4096；滿了會丟棄最舊的事件 */
-    int32_t reserved;
+    int32_t stale_timeout_ms;  /* 觸點幾乎不動超過此時間就視為誤觸並取消（線材等幽靈觸點）。
+                                  0 = 預設 30000、-1 = 關閉、> 0 為毫秒。原為 reserved：舊程式送 0，會得到預設開啟 */
 } MTKConfig; /* 32 bytes */
 
 typedef struct MTKTouchEvent {
@@ -96,8 +97,12 @@ int32_t mtk_is_running(void);
 
 /* 取出佇列中的事件（依時間順序），回傳取出的數量；可在任何執行緒呼叫。 */
 int32_t mtk_poll_events(MTKTouchEvent *buffer, int32_t capacity);
-/* 佇列滿而被丟棄的事件總數 */
+/* 佇列溢位（或重新同步）時丟棄的過時事件總數。溢位不會遺失觸點狀態：下一次 mtk_poll_events
+ * 會先送出重新同步事件（已離開的觸點 cancelled、仍在螢幕上的 began／moved），並在 mtk_poll_log 留下訊息。 */
 uint64_t mtk_dropped_event_count(void);
+
+/* 要求下一次 mtk_poll_events 先依目前觸點狀態重新同步（例如 App 從背景回到前景時對帳）。任何執行緒皆可呼叫。 */
+void mtk_request_resync(void);
 
 /* 設定即時回呼（NULL 取消）。回呼與佇列同時有效。 */
 void mtk_set_event_callback(MTKEventCallback callback, void *user_data);

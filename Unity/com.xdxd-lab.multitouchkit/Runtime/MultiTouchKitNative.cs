@@ -23,7 +23,8 @@ namespace MultiTouchKit
             public int initMultitouch;
             public int reportStationary;
             public int queueCapacity;
-            public int reserved;
+            /// <summary>0 = 預設 30000 ms、-1 = 關閉、&gt; 0 為毫秒（見 multitouchkit.h）</summary>
+            public int staleTimeoutMs;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -110,6 +111,7 @@ namespace MultiTouchKit
         [DllImport(Library)] public static extern int mtk_is_running();
         [DllImport(Library)] public static extern int mtk_poll_events([Out] TouchEvent[] buffer, int capacity);
         [DllImport(Library)] public static extern ulong mtk_dropped_event_count();
+        [DllImport(Library)] public static extern void mtk_request_resync();
         [DllImport(Library)] public static extern int mtk_device_count();
         [DllImport(Library)] public static extern int mtk_get_device_info(int index, out DeviceInfo info);
         [DllImport(Library)] public static extern int mtk_poll_log([Out] byte[] buffer, int capacity);
@@ -128,6 +130,7 @@ namespace MultiTouchKit
         public static int mtk_is_running() => 0;
         public static int mtk_poll_events(TouchEvent[] buffer, int capacity) => 0;
         public static ulong mtk_dropped_event_count() => 0;
+        public static void mtk_request_resync() { }
         public static int mtk_device_count() => 0;
         public static int mtk_get_device_info(int index, out DeviceInfo info) { info = default; return -4; }
         public static int mtk_poll_log(byte[] buffer, int capacity) => 0;

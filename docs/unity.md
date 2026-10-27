@@ -68,8 +68,16 @@ public class Drums : MonoBehaviour
 | `feedInputSystem` | 把觸控送進 Input System 的虛擬 `Touchscreen` |
 | `logNativeMessages` | 把原生診斷訊息（裝置開啟、選到哪台顯示器等）印到 Console |
 | `dontDestroyOnLoad` | 切換場景時保留 |
+| `runInBackground` | 預設 true：設定 `Application.runInBackground`，失去焦點時繼續接收觸控（觸控螢幕通常是第二螢幕，使用者點主螢幕時遊戲不應停住）。關閉時失焦期間的觸控會在回到前景時重新同步 |
+| `staleTouchTimeout` | 觸點幾乎不動超過此秒數就以 Cancelled 取消（線材等幽靈觸點；預設 30，0 = 關閉）。Udp 傳輸時由 `mtk-server --stale-touch-timeout` 決定 |
 
 修改設定後呼叫 `Restart()`。`TouchDisplayId` 可查目前對應到的顯示器。
+
+### 失去焦點、暫停與誤觸
+
+- Unity 失去焦點或暫停時若停止 Update，原生佇列可能溢位。溢位**不會遺失觸點狀態**：回來後第一次取出時會先重新同步（已離開的觸點 Cancelled、仍在的 Began／Moved），Console 會出現警告與丟棄筆數（`DroppedEventCount`）。`OnApplicationFocus(true)`／`OnApplicationPause(false)` 時 Manager 也會主動 `RequestResync()` 對帳。
+- 長時間不動的觸點（例如滑鼠線碰到面板）會在 `staleTouchTimeout` 秒後以 Cancelled 取消。**遊戲請把 Cancelled 當成放開**（長按音符判失敗），不要當作仍按著。
+- TouchVisualizer 讀的是 `ActiveTouches`（原生觸點），不是 Input System；本套件不會啟用 Input System 的 TouchSimulation（滑鼠模擬觸控）。
 
 ## 選擇傳輸方式
 

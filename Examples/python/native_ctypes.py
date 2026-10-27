@@ -21,7 +21,7 @@ CANDIDATES = [
 class Config(ctypes.Structure):
     _fields_ = [(name, ctypes.c_int32) for name in (
         "struct_size", "vendor_id", "product_id", "exclusive",
-        "init_multitouch", "report_stationary", "queue_capacity", "reserved")]
+        "init_multitouch", "report_stationary", "queue_capacity", "stale_timeout_ms")]
 
 
 class TouchEvent(ctypes.Structure):
