@@ -1,2 +1,2 @@
-# Multi_Touch_Kit
-Multi_Touch_Kit_Temp
+# multi_touch_kit
+multi_touch_kit_temp
