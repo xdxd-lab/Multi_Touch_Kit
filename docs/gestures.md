@@ -139,7 +139,7 @@ manager.frameHandler = { gestures.handle($0) }
 ### 送出方法
 
 - 滑鼠：`CGEvent(mouseEventSource:mouseType:…)`，`mouseEventClickState` 帶連點次數，送到 `cghidEventTap`（會移動游標）。
-- 捲動：`CGEvent(scrollWheelEvent2Source:units: .pixel…)`，`scrollWheelEventIsContinuous = 1`，`scrollWheelEventScrollPhase`（1 began、2 changed、4 ended、8 cancelled）與 `scrollWheelEventMomentumPhase`（1 begin、2 continue、3 end）。這些欄位是公開的，App 會看到與觸控板相同的 `NSEvent.phase`／`momentumPhase`、`hasPreciseScrollingDeltas = true`。慣性由本專案計算：初速 = 手指放開時的速度，速度 × e^(−2.8 t) 衰減，低於 20 點／秒停止；總滑行距離約為放開速度 ÷ 2.8（例如 1000 點／秒放開約滑 350 點、1.4 秒）。2.8 是依使用者回饋由 3.5 調低（多約 25%）。初速不放大，以免放開瞬間速度跳動。
+- 捲動：`CGEvent(scrollWheelEvent2Source:units: .pixel…)`，`scrollWheelEventIsContinuous = 1`，`scrollWheelEventScrollPhase`（1 began、2 changed、4 ended、8 cancelled）與 `scrollWheelEventMomentumPhase`（1 begin、2 continue、3 end）。這些欄位是公開的，App 會看到與觸控板相同的 `NSEvent.phase`／`momentumPhase`、`hasPreciseScrollingDeltas = true`。慣性由本專案計算：初速 = 手指放開時的速度，速度 × e^(−2.1 t) 衰減，低於 20 點／秒停止；總滑行距離約為放開速度 ÷ 2.1（例如 1000 點／秒放開約滑 470 點、1.9 秒）。2.1 是依使用者兩次回饋由 3.5 → 2.8（+25%）→ 2.1（再 +33%）調低。初速不放大，以免放開瞬間速度跳動。
 - 縮放／旋轉：未公開 gesture 事件。欄位 55（事件類型）= 29（NSEventTypeGesture）、110（IOHIDEventType）= 8 Zoom／5 Rotation、132 = IOHIDEventPhase（1／2／4／8）、113 = 放大量、114 = 角度，送到 `cgSessionEventTap`。
 - Dock swipe（`dock` 模式）：欄位 55 = 30（DockControl）、110 = 23（DockSwipe）、123／165 = 方向（1 水平、2 垂直）、124／135 = 累積進度、129／130 = 放開速度、41 = 33231，並附一個 type 29 的伴隨事件。
 - 快速鍵（`keys` 模式）：`CGEvent(keyboardEventSource:virtualKey:keyDown:)`，Control＋方向鍵（123–126）。
@@ -156,6 +156,7 @@ manager.frameHandler = { gestures.handle($0) }
 | 左鍵／右鍵按下放開、clickCount | ✅ 收到 | 同上 |
 | 手勢辨識（全部手勢） | ✅ `--simulate-pattern gestures` 一個週期全部辨識正確，座標落在 MF156LR（全域 x 1920–3840） | dry-run |
 | 實機送出（第 2 次回饋） | ✅ Finder 點擊良好；兩指右鍵基準改為游標先移到兩指中點；慣性距離 +25%（衰減 3.5 → 2.8） | 使用者回饋 |
+| 實機送出（第 3 次回饋） | ✅ 兩指右鍵位置、旋轉增益 1.5（60° → 90°）良好；慣性再 +33%（衰減 2.8 → 2.1） | 使用者回饋 |
 | 實機送出（`--gestures`，Finder／Safari／預覽／滑動） | ✅ 可操作；預覽程式旋轉需要轉很多 → 新增旋轉增益 1.5；三指與四指行為相同（設計如此，見上） | 使用者回饋 |
 | 實機 dry-run（第 3 輪） | ✅ 5 次旋轉全對（兩種轉法）、縮放手感合理（×0.33–×3.3）、正常／慢速拖曳；❌ 停留後被提早送右鍵、一次捏合先判成旋轉、兩指拖動中途斷觸只捲了 14 點 → 已修正（放開才確定右鍵、旋轉主導條件、捲動斷觸容忍），待第 4 輪確認 | 同上 |
 | 實機 dry-run（第 2 輪） | ✅ 繞中心旋轉、捏合不再帶出旋轉、甩動＋慣性 1488 點；❌ 旋轉時帶出 ×0.85 縮放、先放軸心指再旋轉被當成拖曳／捲動、短暫觸碰判成旋轉 → 已修正（第二指起點、慢速漂移、比例門檻、最短接觸），待第 3 輪確認 | 同上 |

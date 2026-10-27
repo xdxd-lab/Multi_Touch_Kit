@@ -73,8 +73,8 @@ public struct GestureRecognizer: Sendable {
         public var momentumStopSpeed: Double = 20
         /// 慣性衰減率（每秒，速度 × e^(-friction·t)）。慣性總距離 ≈ 放開速度 ÷ friction；
         /// 初速一律等於手指放開時的速度（銜接自然），只用衰減調整滑行距離。
-        /// 2.8 = 原本 3.5 的 1/1.25，使用者要求慣性多約 25%
-        public var momentumFriction: Double = 2.8
+        /// 2.1 ≈ 2.8 的 1/1.33：使用者在 2.8（原 3.5 的 +25%）實測後要求再多 33%（相對原 3.5 約 +67%）
+        public var momentumFriction: Double = 2.1
         /// 計算放開速度時取最近多久的位移（秒）
         public var velocityWindow: Double = 0.1
 

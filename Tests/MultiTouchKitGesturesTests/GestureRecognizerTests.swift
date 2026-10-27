@@ -635,10 +635,10 @@ struct Driver {
         return d.take().reduce(0.0) { if case .momentum(_, let dy, _) = $1 { $0 + dy } else { $0 } }
     }
 
-    @Test func defaultGlidesAbout25PercentFartherThanBefore() {
+    @Test func defaultGlidesAbout33PercentFartherThanPrevious() {
         // 放開速度 2500 點／秒：總距離 ≈ v / friction（扣掉停止速度以下的尾巴）
-        let before = glide(friction: 3.5)
+        let before = glide(friction: 2.8)
         let now = glide(friction: GestureRecognizer.Configuration().momentumFriction)
-        #expect(abs(now / before - 1.25) < 0.02)
+        #expect(abs(now / before - 1.333) < 0.03)
     }
 }
