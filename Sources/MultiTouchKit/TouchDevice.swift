@@ -1,0 +1,245 @@
+import Foundation
+import IOKit
+import IOKit.hid
+
+/// 一個實體觸控螢幕：數位板介面，加上同一 USB 裝置上被一併獨占的其他 HID 介面。
+/// 除了 init 以外，所有方法都必須在 MultiTouchManager.queue 上呼叫。
+final class TouchDevice: @unchecked Sendable {
+    let id: Int
+    let service: HIDServiceInfo
+    let hidDevice: IOHIDDevice
+    let descriptor: HIDReportDescriptor
+    let layout: DigitizerLayout
+    private(set) var info: MultiTouchDeviceInfo
+
+    var onFrame: ((TouchFrame) -> Void)?
+    var onRemoved: (() -> Void)?
+    /// 同裝置的滑鼠介面送出資料：控制器可能退回了相容模式
+    var onFallbackDetected: (() -> Void)?
+    var allocateTouchID: () -> UInt64 = { 0 }
+    var log: (String) -> Void = { _ in }
+
+    private let queue: DispatchQueue
+    private var assembler = FrameAssembler()
+    private var tracker = ContactTracker()
+    private var sequence: UInt64 = 0
+    private let reportBuffer: UnsafeMutablePointer<UInt8>
+    private let reportBufferSize: Int
+    private var siblings: [UInt64: Sibling] = [:]
+    private var opened = false
+    private var activated = false
+    private var lastReinit: UInt64 = 0
+
+    init?(id: Int, service: io_service_t, info: HIDServiceInfo, queue: DispatchQueue) throws {
+        guard let device = IOHIDDeviceCreate(kCFAllocatorDefault, service) else { return nil }
+        let descriptor = try HIDReportDescriptor(bytes: info.reportDescriptor)
+        guard let layout = DigitizerLayout(descriptor: descriptor) else { return nil }
+        self.id = id
+        self.service = info
+        self.hidDevice = device
+        self.descriptor = descriptor
+        self.layout = layout
+        self.queue = queue
+        reportBufferSize = max(info.maxInputReportSize, layout.reportLength + 1)
+        reportBuffer = .allocate(capacity: reportBufferSize)
+        self.info = MultiTouchDeviceInfo(
+            id: id, vendorID: info.vendorID, productID: info.productID,
+            manufacturer: info.manufacturer, product: info.product, serialNumber: info.serialNumber,
+            locationID: info.locationID,
+            // 先以槽位數為準，讀到 Contact Count Maximum feature 後再更新
+            maxContacts: layout.slots.count,
+            slotsPerReport: layout.slots.count,
+            physicalWidthMillimeters: layout.slots.first?.x.physicalLengthMillimeters,
+            physicalHeightMillimeters: layout.slots.first?.y.physicalLengthMillimeters,
+            hasScanTime: layout.scanTime != nil,
+            exclusive: false)
+    }
+
+    deinit {
+        reportBuffer.deallocate()
+    }
+
+    func open(exclusive: Bool) -> IOReturn {
+        let options = exclusive ? kIOHIDOptionsTypeSeizeDevice : kIOHIDOptionsTypeNone
+        let result = IOHIDDeviceOpen(hidDevice, IOOptionBits(options))
+        if result == kIOReturnSuccess {
+            opened = true
+            info.exclusive = exclusive
+        }
+        return result
+    }
+
+    func activate() {
+        IOHIDDeviceSetDispatchQueue(hidDevice, queue)
+        let context = Unmanaged.passRetained(self).toOpaque()
+        IOHIDDeviceRegisterInputReportWithTimeStampCallback(
+            hidDevice, reportBuffer, reportBufferSize,
+            { context, result, _, _, reportID, report, length, timeStamp in
+                guard result == kIOReturnSuccess, let context else { return }
+                Unmanaged<TouchDevice>.fromOpaque(context).takeUnretainedValue()
+                    .handleReport(reportID: UInt8(truncatingIfNeeded: reportID), report: report,
+                                  length: length, hostTime: timeStamp)
+            }, context)
+        IOHIDDeviceRegisterRemovalCallback(hidDevice, { context, _, _ in
+            guard let context else { return }
+            Unmanaged<TouchDevice>.fromOpaque(context).takeUnretainedValue().onRemoved?()
+        }, context)
+        let bits = UInt(bitPattern: context)
+        IOHIDDeviceSetCancelHandler(hidDevice) {
+            guard let pointer = UnsafeMutableRawPointer(bitPattern: bits) else { return }
+            let device = Unmanaged<TouchDevice>.fromOpaque(pointer).takeRetainedValue()
+            IOHIDDeviceClose(device.hidDevice, IOOptionBits(kIOHIDOptionsTypeNone))
+        }
+        IOHIDDeviceActivate(hidDevice)
+        activated = true
+    }
+
+    /// 停止接收並釋放所有介面（非同步完成）
+    func cancel() {
+        for sibling in siblings.values { IOHIDDeviceCancel(sibling.device) }
+        siblings.removeAll()
+        if activated {
+            IOHIDDeviceCancel(hidDevice)
+            activated = false
+        } else if opened {
+            IOHIDDeviceClose(hidDevice, IOOptionBits(kIOHIDOptionsTypeNone))
+        }
+        opened = false
+    }
+
+    /// 把仍在螢幕上的觸點全部標成 cancelled
+    func cancelTouches() -> TouchFrame? {
+        let touches = tracker.cancelAll()
+        guard !touches.isEmpty else { return nil }
+        sequence += 1
+        return TouchFrame(deviceID: id, sequence: sequence, timestamp: MultiTouchClock.now(), scanTime: nil, touches: touches)
+    }
+
+    // MARK: - 報告處理
+
+    private func handleReport(reportID: UInt8, report: UnsafeMutablePointer<UInt8>, length: CFIndex, hostTime: UInt64) {
+        guard reportID == layout.reportID else { return }
+        let skip = descriptor.usesReportIDs ? 1 : 0
+        guard length - skip >= layout.reportLength else { return }
+        let parsed = layout.parse(UnsafeBufferPointer(start: report + skip, count: length - skip))
+        guard let frame = assembler.add(parsed, timestamp: MultiTouchClock.nanoseconds(fromHostTime: hostTime)) else { return }
+        let touches = tracker.update(frame.contacts, allocateID: allocateTouchID)
+        // 閒置時的空報告不轉發
+        guard !touches.isEmpty else { return }
+        sequence += 1
+        onFrame?(TouchFrame(deviceID: id, sequence: sequence, timestamp: frame.timestamp,
+                            scanTime: parsed.scanTime, touches: touches))
+    }
+
+    // MARK: - 多點模式初始化
+
+    /// 依 Windows 的列舉流程：讀取最大觸點數，若有 Device Mode 就設為 2（多點）。回傳給人看的結果說明。
+    @discardableResult
+    func initializeMultiTouchMode() -> String {
+        lastReinit = MultiTouchClock.now()
+        var notes: [String] = []
+        if let field = layout.maxContactsFeature {
+            if let payload = getFeature(id: field.reportID) {
+                let value = Int(field.value(in: payload))
+                if value > 0 { info.maxContacts = value }
+                notes.append("最大觸點數 \(value)")
+            } else {
+                notes.append("讀取最大觸點數失敗")
+            }
+        }
+        if let field = layout.deviceModeFeature {
+            var payload = getFeature(id: field.reportID)
+                ?? [UInt8](repeating: 0, count: descriptor.reportByteCount(.feature, id: field.reportID))
+            field.write(2, into: &payload)
+            let result = setFeature(id: field.reportID, payload: payload)
+            notes.append(result == kIOReturnSuccess ? "已切換到多點模式" : "切換多點模式失敗 \(hexString(result))")
+        }
+        return notes.isEmpty ? "裝置沒有需要初始化的 feature report" : notes.joined(separator: "、")
+    }
+
+    /// 回傳不含 report ID 的 feature report 內容
+    private func getFeature(id: UInt8) -> [UInt8]? {
+        let withID = descriptor.usesReportIDs ? 1 : 0
+        let size = descriptor.reportByteCount(.feature, id: id) + withID
+        var buffer = [UInt8](repeating: 0, count: max(size, 1))
+        var length = CFIndex(buffer.count)
+        let result = IOHIDDeviceGetReport(hidDevice, kIOHIDReportTypeFeature, CFIndex(id), &buffer, &length)
+        guard result == kIOReturnSuccess else { return nil }
+        let skip = withID == 1 && length >= size ? 1 : 0
+        return Array(buffer[skip..<max(skip, min(length, buffer.count))])
+    }
+
+    private func setFeature(id: UInt8, payload: [UInt8]) -> IOReturn {
+        let report = (descriptor.usesReportIDs ? [id] : []) + payload
+        return IOHIDDeviceSetReport(hidDevice, kIOHIDReportTypeFeature, CFIndex(id), report, report.count)
+    }
+
+    // MARK: - 同裝置的其他介面
+
+    private final class Sibling: @unchecked Sendable {
+        let device: IOHIDDevice
+        let buffer: UnsafeMutablePointer<UInt8>
+        let size: Int
+        let pointerReportIDs: Set<UInt8>
+        weak var owner: TouchDevice?
+
+        init(device: IOHIDDevice, size: Int, pointerReportIDs: Set<UInt8>, owner: TouchDevice) {
+            self.device = device
+            self.size = size
+            self.pointerReportIDs = pointerReportIDs
+            self.owner = owner
+            buffer = .allocate(capacity: size)
+        }
+
+        deinit {
+            buffer.deallocate()
+        }
+    }
+
+    func hasSibling(_ registryID: UInt64) -> Bool { siblings[registryID] != nil }
+
+    /// 獨占同裝置的其他介面（例如滑鼠相容模式），避免系統把觸控當成單點滑鼠
+    func attachSibling(service: io_service_t, info sibling: HIDServiceInfo) {
+        guard siblings[sibling.registryID] == nil,
+              let device = IOHIDDeviceCreate(kCFAllocatorDefault, service) else { return }
+        let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
+        guard result == kIOReturnSuccess else {
+            log("無法獨占 \(sibling.product) 的其他介面：\(hexString(result))")
+            return
+        }
+        let pointerIDs: Set<UInt8> = (try? HIDReportDescriptor(bytes: sibling.reportDescriptor)).map { d in
+            Set(d.inputFields.filter { field in
+                !field.isConstant && field.collectionPath.contains {
+                    $0.usagePage == HIDUsage.genericDesktopPage && ($0.usage == HIDUsage.mouse || $0.usage == HIDUsage.pointer)
+                }
+            }.map(\.reportID))
+        } ?? []
+        let entry = Sibling(device: device, size: max(sibling.maxInputReportSize, 1), pointerReportIDs: pointerIDs, owner: self)
+        siblings[sibling.registryID] = entry
+        IOHIDDeviceSetDispatchQueue(device, queue)
+        let context = Unmanaged.passRetained(entry).toOpaque()
+        IOHIDDeviceRegisterInputReportCallback(device, entry.buffer, entry.size, { context, result, _, _, reportID, _, _ in
+            guard result == kIOReturnSuccess, let context else { return }
+            let entry = Unmanaged<Sibling>.fromOpaque(context).takeUnretainedValue()
+            if entry.pointerReportIDs.contains(UInt8(truncatingIfNeeded: reportID)) {
+                entry.owner?.siblingPointerActivity()
+            }
+        }, context)
+        let bits = UInt(bitPattern: context)
+        IOHIDDeviceSetCancelHandler(device) {
+            guard let pointer = UnsafeMutableRawPointer(bitPattern: bits) else { return }
+            let entry = Unmanaged<Sibling>.fromOpaque(pointer).takeRetainedValue()
+            IOHIDDeviceClose(entry.device, IOOptionBits(kIOHIDOptionsTypeNone))
+        }
+        IOHIDDeviceActivate(device)
+        let usages = sibling.usagePairs.map { String(format: "0x%x/0x%x", $0.page, $0.usage) }.joined(separator: ",")
+        log("已一併獨占同裝置的其他介面（usage \(usages)）")
+    }
+
+    private func siblingPointerActivity() {
+        let now = MultiTouchClock.now()
+        guard now &- lastReinit > 1_000_000_000 else { return }
+        lastReinit = now
+        onFallbackDetected?()
+    }
+}

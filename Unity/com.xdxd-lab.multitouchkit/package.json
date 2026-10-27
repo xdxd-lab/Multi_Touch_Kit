@@ -1,0 +1,24 @@
+{
+  "name": "com.xdxd-lab.multitouchkit",
+  "version": "0.1.0",
+  "displayName": "MultiTouchKit",
+  "description": "在 macOS 上讀取 HID 多點觸控螢幕（例如 ILITEK 10 點觸控）的原生外掛，並可模擬 Input System 的 Touchscreen 裝置。",
+  "unity": "2022.3",
+  "author": {
+    "name": "xdxd-lab",
+    "url": "https://github.com/xdxd-lab/Multi_Touch_Kit"
+  },
+  "keywords": ["touch", "multitouch", "macos", "hid", "rhythm"],
+  "samples": [
+    {
+      "displayName": "Touch Visualizer",
+      "description": "顯示每根手指的位置與編號，用來確認 10 點觸控。",
+      "path": "Samples~/TouchVisualizer"
+    },
+    {
+      "displayName": "Latency Calibration",
+      "description": "跟著節拍器點擊，量出節奏遊戲需要的判定偏移。",
+      "path": "Samples~/LatencyCalibration"
+    }
+  ]
+}

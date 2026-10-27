@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MultiTouchKit 網頁範例</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 16px -apple-system, "PingFang TC", sans-serif; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; left: 16px; top: 12px; white-space: pre; pointer-events: none; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="hud">連線中…</div>
+<script>
+// 連線 mtk-server 的 WebSocket，畫出每根手指。網址可用 ?ws=ws://主機:埠 覆寫。
+// 座標 x、y 是 0..1、原點左上，直接乘上畫布尺寸即可（全螢幕顯示在觸控螢幕上時位置最準）。
+const url = new URLSearchParams(location.search).get("ws") || "ws://127.0.0.1:7778";
+const canvas = document.getElementById("view");
+const ctx = canvas.getContext("2d");
+const hud = document.getElementById("hud");
+const touches = new Map();   // id → {x, y}
+const ripples = [];          // 按下時的擴散圈
+let maxTouches = 0, taps = 0, frames = 0, devices = [];
+
+function resize() {
+  canvas.width = innerWidth * devicePixelRatio;
+  canvas.height = innerHeight * devicePixelRatio;
+}
+addEventListener("resize", resize);
+resize();
+
+function connect() {
+  const ws = new WebSocket(url);
+  ws.onopen = () => hud.textContent = `已連線 ${url}`;
+  ws.onclose = () => { hud.textContent = `連線中斷，2 秒後重試（${url}）`; setTimeout(connect, 2000); };
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === "hello") devices = msg.devices;
+    if (msg.type === "device") devices = devices.filter(d => d.id !== msg.device.id).concat(msg.event === "removed" ? [] : [msg.device]);
+    if (msg.type !== "frame") return;
+    frames++;
+    for (const t of msg.touches) {
+      if (t.phase === "ended" || t.phase === "cancelled") { touches.delete(t.id); continue; }
+      touches.set(t.id, { x: t.x, y: t.y });
+      if (t.phase === "began") { taps++; ripples.push({ x: t.x, y: t.y, start: performance.now(), id: t.id }); }
+    }
+    maxTouches = Math.max(maxTouches, touches.size);
+  };
+}
+connect();
+
+function hue(id) { return (id * 37) % 360; }
+
+function draw(now) {
+  const w = canvas.width, h = canvas.height, s = devicePixelRatio;
+  ctx.fillStyle = "#111";
+  ctx.fillRect(0, 0, w, h);
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const r = ripples[i], p = (now - r.start) / 350;
+    if (p >= 1) { ripples.splice(i, 1); continue; }
+    ctx.strokeStyle = `hsla(${hue(r.id)}, 80%, 60%, ${1 - p})`;
+    ctx.lineWidth = 4 * s;
+    ctx.beginPath();
+    ctx.arc(r.x * w, r.y * h, (40 + p * 80) * s, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.font = `bold ${18 * s}px ui-monospace, monospace`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (const [id, t] of touches) {
+    ctx.fillStyle = `hsla(${hue(id)}, 70%, 55%, 0.85)`;
+    ctx.beginPath();
+    ctx.arc(t.x * w, t.y * h, 45 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.fillText(id, t.x * w, t.y * h);
+  }
+  const names = devices.map(d => `${d.product}（最多 ${d.maxContacts} 點）`).join("、") || "無";
+  if (hud.textContent.startsWith("已連線") || frames) {
+    hud.textContent = `${url}\n裝置：${names}\n觸點 ${touches.size}　最多 ${maxTouches}　按下 ${taps}`;
+  }
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

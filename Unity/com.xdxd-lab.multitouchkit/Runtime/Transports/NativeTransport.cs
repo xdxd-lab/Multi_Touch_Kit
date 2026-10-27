@@ -1,0 +1,98 @@
+using System.Collections.Generic;
+using System.Text;
+using UnityEngine;
+
+namespace MultiTouchKit
+{
+    /// <summary>在 Unity 程序內直接讀取觸控（最低延遲）。同一時間只有一個程式能獨占裝置，執行 mtk-server 時請改用 UdpTransport。</summary>
+    public sealed class NativeTransport : IMultiTouchTransport
+    {
+        readonly MultiTouchKitNative.TouchEvent[] m_Buffer = new MultiTouchKitNative.TouchEvent[256];
+        readonly byte[] m_LogBuffer = new byte[1024];
+        readonly bool m_Exclusive;
+        readonly int m_VendorId;
+        readonly int m_ProductId;
+        readonly bool m_ReportStationary;
+        readonly bool m_Log;
+        bool m_Started;
+
+        public NativeTransport(bool exclusive = true, int vendorId = 0, int productId = 0,
+                               bool reportStationary = false, bool log = true)
+        {
+            m_Exclusive = exclusive;
+            m_VendorId = vendorId;
+            m_ProductId = productId;
+            m_ReportStationary = reportStationary;
+            m_Log = log;
+        }
+
+        public string Name => "Native";
+
+        public bool Start()
+        {
+            if (!MultiTouchKitNative.IsAvailable)
+            {
+                Debug.LogWarning("[MultiTouchKit] 原生外掛只支援 macOS（編輯器與執行檔）");
+                return false;
+            }
+            var config = new MultiTouchKitNative.Config();
+            MultiTouchKitNative.mtk_default_config(ref config);
+            config.exclusive = m_Exclusive ? 1 : 0;
+            config.vendorId = m_VendorId;
+            config.productId = m_ProductId;
+            config.reportStationary = m_ReportStationary ? 1 : 0;
+            int result = MultiTouchKitNative.mtk_start(ref config);
+            DrainLogs();
+            if (result != MultiTouchKitNative.Ok)
+            {
+                Debug.LogError($"[MultiTouchKit] mtk_start 失敗：{result}");
+                return false;
+            }
+            m_Started = true;
+            return true;
+        }
+
+        public void Poll(List<MultiTouchTouch> output)
+        {
+            if (!m_Started) return;
+            int count;
+            do
+            {
+                count = MultiTouchKitNative.mtk_poll_events(m_Buffer, m_Buffer.Length);
+                for (int i = 0; i < count; i++)
+                {
+                    var e = m_Buffer[i];
+                    output.Add(new MultiTouchTouch
+                    {
+                        Id = e.touchId,
+                        ContactId = e.contactId,
+                        DeviceId = e.deviceId,
+                        Phase = (MultiTouchPhase)e.phase,
+                        Normalized = new Vector2(e.x, e.y),
+                        TimestampNs = e.timestampNs,
+                        Pressure = e.pressure,
+                        FrameSequence = e.frameSeq,
+                    });
+                }
+            } while (count == m_Buffer.Length);
+            DrainLogs();
+        }
+
+        public void Dispose()
+        {
+            if (!m_Started) return;
+            MultiTouchKitNative.mtk_stop();
+            m_Started = false;
+            DrainLogs();
+        }
+
+        void DrainLogs()
+        {
+            int length;
+            while ((length = MultiTouchKitNative.mtk_poll_log(m_LogBuffer, m_LogBuffer.Length)) > 0)
+            {
+                if (m_Log) Debug.Log(Encoding.UTF8.GetString(m_LogBuffer, 0, length));
+            }
+        }
+    }
+}

@@ -1,0 +1,15 @@
+.DS_Store
+/.build/
+/.swiftpm/
+/Packages/
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+*.csv
+
+# 若在 repo 內建立 Unity 測試專案
+/UnityProject/Library/
+/UnityProject/Temp/
+/UnityProject/Logs/
+/UnityProject/UserSettings/
+/UnityProject/obj/

@@ -1,0 +1,125 @@
+/*
+ * MultiTouchKit C API
+ *
+ * 讓 Unity（DllImport "MultiTouchKit"）、C/C++、Python ctypes、Godot GDExtension、Rust 等
+ * 在 macOS 上讀取 HID 多點觸控螢幕的 10 點資料。
+ *
+ * ABI 規則：
+ *   - 結構欄位只能附加在尾端，不可重排或刪除；改動後要同步更新 MTK_API_VERSION、
+ *     Unity 套件的 MultiTouchKitNative.cs 與 docs/c-api.md。
+ *   - 座標為 0...1 的正規化值，原點在觸控面板左上角。
+ *   - 時間戳記單位為奈秒，時基與 mtk_now_ns() 相同（mach_absolute_time）。
+ */
+#ifndef MULTITOUCHKIT_H
+#define MULTITOUCHKIT_H
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define MTK_API_VERSION 1
+
+/* 回傳碼 */
+#define MTK_OK 0
+#define MTK_ERR_INVALID_ARGUMENT (-1)
+#define MTK_ERR_START_FAILED (-2)
+#define MTK_ERR_NOT_RUNNING (-3)
+#define MTK_ERR_OUT_OF_RANGE (-4)
+#define MTK_ERR_NO_WINDOW (-5)
+
+/* 觸點階段（MTKTouchEvent.phase） */
+#define MTK_PHASE_BEGAN 0
+#define MTK_PHASE_MOVED 1
+#define MTK_PHASE_STATIONARY 2
+#define MTK_PHASE_ENDED 3
+#define MTK_PHASE_CANCELLED 4
+
+/* MTKTouchEvent.flags */
+#define MTK_FLAG_HAS_PRESSURE 0x1u
+#define MTK_FLAG_HAS_SIZE 0x2u
+#define MTK_FLAG_HAS_CONFIDENCE 0x4u
+#define MTK_FLAG_LOW_CONFIDENCE 0x8u /* 控制器判斷不是有意的觸碰（例如手掌） */
+
+typedef struct MTKConfig {
+    int32_t struct_size;       /* = sizeof(MTKConfig)，由 mtk_default_config 填入 */
+    int32_t vendor_id;         /* 0 = 不限 */
+    int32_t product_id;        /* 0 = 不限 */
+    int32_t exclusive;         /* 1 = 獨占裝置（預設），系統不再把觸控當成單點滑鼠 */
+    int32_t init_multitouch;   /* 1 = 依 Windows 流程初始化多點模式（預設） */
+    int32_t report_stationary; /* 0 = 事件佇列不放入 stationary 事件（預設） */
+    int32_t queue_capacity;    /* 事件佇列容量，0 = 預設 4096；滿了會丟棄最舊的事件 */
+    int32_t reserved;
+} MTKConfig; /* 32 bytes */
+
+typedef struct MTKTouchEvent {
+    uint64_t touch_id;     /* 每次觸碰唯一，從 1 開始 */
+    uint64_t timestamp_ns; /* 收到 HID 報告的時間 */
+    int32_t device_id;
+    int32_t contact_id;    /* 控制器的 Contact Identifier，放開後會重複使用 */
+    int32_t phase;         /* MTK_PHASE_* */
+    float x;               /* 0...1，左 → 右 */
+    float y;               /* 0...1，上 → 下 */
+    float pressure;        /* 0...1；不支援時為 -1 */
+    float width;           /* 正規化接觸寬度；不支援時為 -1 */
+    float height;          /* 正規化接觸高度；不支援時為 -1 */
+    uint32_t frame_seq;    /* 同一個 frame 的事件數值相同 */
+    uint32_t flags;        /* MTK_FLAG_* */
+} MTKTouchEvent; /* 56 bytes */
+
+typedef struct MTKDeviceInfo {
+    int32_t device_id;
+    int32_t vendor_id;
+    int32_t product_id;
+    int32_t max_contacts;
+    int32_t slots_per_report;
+    int32_t exclusive;
+    float physical_width_mm;  /* 未知時為 0 */
+    float physical_height_mm; /* 未知時為 0 */
+    char manufacturer[64];    /* UTF-8，以 0 結尾 */
+    char product[64];
+} MTKDeviceInfo; /* 160 bytes */
+
+/* 在 HID 執行緒上呼叫；請盡快返回。events 只在回呼期間有效。 */
+typedef void (*MTKEventCallback)(const MTKTouchEvent *events, int32_t count, void *user_data);
+
+int32_t mtk_api_version(void);
+const char *mtk_version(void);
+
+void mtk_default_config(MTKConfig *config);
+
+/* 開始偵測與讀取。已在執行時會先停止再以新設定重新開始。 */
+int32_t mtk_start(const MTKConfig *config);
+void mtk_stop(void);
+int32_t mtk_is_running(void);
+
+/* 取出佇列中的事件（依時間順序），回傳取出的數量；可在任何執行緒呼叫。 */
+int32_t mtk_poll_events(MTKTouchEvent *buffer, int32_t capacity);
+/* 佇列滿而被丟棄的事件總數 */
+uint64_t mtk_dropped_event_count(void);
+
+/* 設定即時回呼（NULL 取消）。回呼與佇列同時有效。 */
+void mtk_set_event_callback(MTKEventCallback callback, void *user_data);
+
+int32_t mtk_device_count(void);
+int32_t mtk_get_device_info(int32_t index, MTKDeviceInfo *info);
+
+/* 取出一則診斷訊息（UTF-8），回傳寫入的位元組數（不含結尾 0），沒有訊息時回傳 0。 */
+int32_t mtk_poll_log(char *buffer, int32_t capacity);
+
+/* 與 timestamp_ns 相同時基的目前時間 */
+uint64_t mtk_now_ns(void);
+
+/*
+ * 把正規化觸控座標換算成目前程式 key window（沒有則 main window）內容區的像素座標，
+ * 原點在左下角（與 Unity 的 Screen 座標相同）。display_id = 0 代表主螢幕。
+ * 必須在主執行緒呼叫。成功回傳 MTK_OK，沒有視窗回傳 MTK_ERR_NO_WINDOW。
+ */
+int32_t mtk_map_to_window(float x, float y, uint32_t display_id, float *out_x, float *out_y);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* MULTITOUCHKIT_H */
