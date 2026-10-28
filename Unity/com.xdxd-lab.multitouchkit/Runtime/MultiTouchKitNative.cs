@@ -164,6 +164,10 @@ namespace MultiTouchKit
         [DllImport(Library)] public static extern void mtk_request_resync();
         /// <summary>目前開啟的裝置數。</summary>
         [DllImport(Library)] public static extern int mtk_device_count();
+        /// <summary>觸控校正（calibration.json）的開關；mtk_start 前後皆可呼叫，立即生效。</summary>
+        [DllImport(Library)] public static extern void mtk_set_calibration_enabled(int enabled);
+        /// <summary>第 index 個裝置是否正在套用校正：1／0；沒有這個裝置時為 MTK_ERR_OUT_OF_RANGE。</summary>
+        [DllImport(Library)] public static extern int mtk_is_calibrated(int index);
         /// <summary>第 index 個裝置的資訊；超出範圍回傳 MTK_ERR_OUT_OF_RANGE。</summary>
         [DllImport(Library)] public static extern int mtk_get_device_info(int index, out DeviceInfo info);
         /// <summary>取出一則診斷訊息（UTF-8），回傳位元組數；沒有訊息時回傳 0。</summary>
@@ -188,6 +192,8 @@ namespace MultiTouchKit
         public static ulong mtk_dropped_event_count() => 0;
         public static void mtk_request_resync() { }
         public static int mtk_device_count() => 0;
+        public static void mtk_set_calibration_enabled(int enabled) { }
+        public static int mtk_is_calibrated(int index) => -4;
         public static int mtk_get_device_info(int index, out DeviceInfo info) { info = default; return -4; }
         public static int mtk_poll_log(byte[] buffer, int capacity) => 0;
         public static ulong mtk_now_ns() => 0;

@@ -62,6 +62,13 @@ public enum TouchJSON {
                 w.appendFixed5(h)
             }
             if let c = t.confidence { w.append(c ? ",\"conf\":true" : ",\"conf\":false") }
+            // 套用觸控校正時附上校正前的座標（校正工具以它收集原始位置）
+            if let ux = t.uncalibratedX, let uy = t.uncalibratedY {
+                w.append(",\"ux\":")
+                w.appendFixed5(ux)
+                w.append(",\"uy\":")
+                w.appendFixed5(uy)
+            }
             w.append("}")
         }
         w.append("]}")
@@ -100,10 +107,11 @@ public enum TouchJSON {
     public static func deviceObject(_ d: MultiTouchDeviceInfo) -> String {
         var s = "{\"id\":\(d.id),\"vendorId\":\(d.vendorID),\"productId\":\(d.productID)"
         s += ",\"manufacturer\":\"\(escape(d.manufacturer))\",\"product\":\"\(escape(d.product))\""
+        s += ",\"serial\":\"\(escape(d.serialNumber))\",\"locationId\":\(d.locationID)"
         s += ",\"maxContacts\":\(d.maxContacts),\"slotsPerReport\":\(d.slotsPerReport)"
         if let w = d.physicalWidthMillimeters { s += ",\"widthMM\":" + String(format: "%.1f", w) }
         if let h = d.physicalHeightMillimeters { s += ",\"heightMM\":" + String(format: "%.1f", h) }
-        return s + ",\"exclusive\":\(d.exclusive)}"
+        return s + ",\"exclusive\":\(d.exclusive),\"calibrated\":\(d.isCalibrated)}"
     }
 
     /// 與 `String(format: "%.5f", v)` 完全相同

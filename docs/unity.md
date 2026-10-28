@@ -81,6 +81,7 @@ public class Drums : MonoBehaviour
 | `logNativeMessages` | 把原生診斷訊息（裝置開啟、選到哪台顯示器等）印到 Console |
 | `dontDestroyOnLoad` | 切換場景時保留 |
 | `runInBackground` | 預設 true：設定 `Application.runInBackground`，失去焦點時繼續接收觸控（觸控螢幕通常是第二螢幕，使用者點主螢幕時遊戲不應停住）。關閉時失焦期間的觸控會在回到前景時重新同步 |
+| `applyCalibration` | Native 模式：套用 `mtk-viewer --calibrate` 建立的觸控校正（預設 true；沒有校正時沒有作用）。Udp 模式由 mtk-server 決定（`--no-calibration`） |
 | `staleTouchTimeout` | 觸點幾乎不動超過此秒數就以 Cancelled 取消（線材等幽靈觸點；預設 30，0 = 關閉）。Udp 傳輸時由 `mtk-server --stale-touch-timeout` 決定 |
 
 修改設定後呼叫 `Restart()`。`TouchDisplayId` 可查目前對應到的顯示器。

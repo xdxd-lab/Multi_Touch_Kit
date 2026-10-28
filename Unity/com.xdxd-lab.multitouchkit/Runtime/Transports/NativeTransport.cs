@@ -15,6 +15,7 @@ namespace MultiTouchKit
         readonly bool m_ReportStationary;
         readonly bool m_Log;
         readonly float m_StaleTouchTimeout;
+        readonly bool m_ApplyCalibration;
         bool m_Started;
         ulong m_LastDropped;
 
@@ -27,9 +28,12 @@ namespace MultiTouchKit
         /// <param name="reportStationary">也送出 Stationary 事件</param>
         /// <param name="log">把原生診斷訊息印到 Console</param>
         /// <param name="staleTouchTimeout">觸點幾乎不動超過此秒數就視為誤觸並取消（線材等幽靈觸點）；0 = 關閉</param>
+        /// <param name="applyCalibration">套用 mtk-viewer --calibrate 建立的觸控校正（有該裝置的校正時）</param>
         public NativeTransport(bool exclusive = true, int vendorId = 0, int productId = 0,
-                               bool reportStationary = false, bool log = true, float staleTouchTimeout = 30f)
+                               bool reportStationary = false, bool log = true, float staleTouchTimeout = 30f,
+                               bool applyCalibration = true)
         {
+            m_ApplyCalibration = applyCalibration;
             m_StaleTouchTimeout = staleTouchTimeout;
             m_Exclusive = exclusive;
             m_VendorId = vendorId;
@@ -56,6 +60,7 @@ namespace MultiTouchKit
             config.vendorId = m_VendorId;
             config.productId = m_ProductId;
             config.reportStationary = m_ReportStationary ? 1 : 0;
+            MultiTouchKitNative.mtk_set_calibration_enabled(m_ApplyCalibration ? 1 : 0);
             int result = MultiTouchKitNative.mtk_start(ref config);
             DrainLogs();
             if (result != MultiTouchKitNative.Ok)

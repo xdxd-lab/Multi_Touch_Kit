@@ -142,3 +142,12 @@ import Testing
         done.wait()
     }
 }
+
+@Suite(.serialized) struct CalibrationCAPITests {
+    @Test func calibrationFunctions() {
+        mtkSetCalibrationEnabled(0)
+        mtkSetCalibrationEnabled(1)
+        #expect(mtkIsCalibrated(0) == MTK_ERR_OUT_OF_RANGE)  // 沒有啟動、沒有裝置
+        #expect(mtkIsCalibrated(-1) == MTK_ERR_OUT_OF_RANGE)
+    }
+}

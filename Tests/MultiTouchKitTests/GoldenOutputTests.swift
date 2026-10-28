@@ -67,7 +67,7 @@ import Testing
                                         product: "觸控 🖐 Panel\r", serialNumber: "", locationID: 0, maxContacts: 10,
                                         slotsPerReport: 10, physicalWidthMillimeters: 309.3, physicalHeightMillimeters: nil,
                                         hasScanTime: true, exclusive: true)
-        #expect(TouchJSON.device(info, event: "added") == #"{"type":"device","v":1,"event":"added","device":{"id":1,"vendorId":8746,"productId":1,"manufacturer":"IL\"I\\TEK\n\t\u0001","product":"觸控 🖐 Panel\r","maxContacts":10,"slotsPerReport":10,"widthMM":309.3,"exclusive":true}}"#)
+        #expect(TouchJSON.device(info, event: "added") == #"{"type":"device","v":1,"event":"added","device":{"id":1,"vendorId":8746,"productId":1,"manufacturer":"IL\"I\\TEK\n\t\u0001","product":"觸控 🖐 Panel\r","serial":"","locationId":0,"maxContacts":10,"slotsPerReport":10,"widthMM":309.3,"exclusive":true,"calibrated":false}}"#)
         #expect(TouchJSON.hello(server: "mtk-server", devices: [info]) == ReferenceTouchJSON.hello(server: "mtk-server", devices: [info]))
     }
 

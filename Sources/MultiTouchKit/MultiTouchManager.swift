@@ -38,6 +38,10 @@ public final class MultiTouchManager: @unchecked Sendable {
         public var staleTouchTolerance: Double = 0.003
         /// 有觸點時超過這麼久（秒）沒有任何報告就全部取消（USB 異常）；控制器按住時以 125 Hz 回報。0 = 關閉
         public var reportTimeout: Double = 0.5
+        /// 觸控校正的來源（預設讀取 calibration.json；見 `TouchCalibration`）
+        public var calibration: TouchCalibrationSource = .stored
+        /// `.stored` 使用的校正檔（測試時可改）
+        public var calibrationStoreURL: URL = TouchCalibrationStore.defaultURL
 
         /// 預設值：所有 HID 觸控螢幕、獨占、初始化多點模式、一併獨占滑鼠相容介面
         public init() {}
@@ -65,6 +69,9 @@ public final class MultiTouchManager: @unchecked Sendable {
     private var nextDeviceID = 1
     private var nextTouchID: UInt64 = 1
     private var exclusiveWarningShown: Set<UInt64> = []
+    private var calibrationTimer: DispatchSourceTimer?
+    private var calibrationFileDate: Date?
+    private let _calibrationEnabled = Locked(true)
 
     /// 建立後呼叫 `start()` 才會開始偵測
     public init(configuration: Configuration = .init()) {
@@ -108,6 +115,15 @@ public final class MultiTouchManager: @unchecked Sendable {
     /// `start()` 之後、`stop()` 之前為 true；不代表已有裝置（見 `connectedDevices`）
     public var isRunning: Bool { published.wrapped.isRunning }
 
+    /// 執行期間切換觸控校正（C API mtk_set_calibration_enabled、Unity applyCalibration）；任何執行緒皆可設定，立即套用到所有裝置
+    public var isCalibrationEnabled: Bool {
+        get { _calibrationEnabled.wrapped }
+        set {
+            _calibrationEnabled.wrapped = newValue
+            queue.async { [weak self] in self?.applyCalibration(reason: newValue ? "啟用" : "停用") }
+        }
+    }
+
     /// 開始偵測觸控螢幕（包含之後才接上的）並讀取觸控。已在執行時不做任何事；沒有觸控螢幕時也會成功，接上後自動開始。
     /// 可從任何執行緒呼叫，包含 handler 內（在 `queue` 上同步執行）。
     /// - Throws: `MultiTouchError`（IOKit 無法建立裝置通知）
@@ -134,6 +150,7 @@ public final class MultiTouchManager: @unchecked Sendable {
             matchIterator = iterator
             published.withLock { $0.isRunning = true }
             servicesAppeared(iterator)
+            startCalibrationWatcher()
             power = PowerObserver(queue: queue) { [weak self] in
                 // 喚醒後裝置可能還沒準備好，稍等再初始化
                 self?.queue.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.reinitializeAll(reason: "系統喚醒") }
@@ -157,7 +174,69 @@ public final class MultiTouchManager: @unchecked Sendable {
         logHandler?("[MultiTouchKit] " + message)
     }
 
+    // MARK: - 觸控校正
+
+    /// 環境變數 MTK_CALIBRATION=off 時，`.stored` 視為停用（所有使用 MultiTouchKit 的程式一併停用）
+    private static let calibrationDisabledByEnvironment =
+        ["off", "0", "false", "no"].contains(ProcessInfo.processInfo.environment["MTK_CALIBRATION"]?.lowercased() ?? "")
+
+    private func calibration(for info: MultiTouchDeviceInfo) -> (TouchCalibration, String)? {
+        guard _calibrationEnabled.wrapped else { return nil }
+        switch configuration.calibration {
+        case .disabled:
+            return nil
+        case .custom(let calibration):
+            return (calibration, "指定的校正")
+        case .stored:
+            guard !Self.calibrationDisabledByEnvironment,
+                  let entry = TouchCalibrationStore(url: configuration.calibrationStoreURL).entry(for: info) else { return nil }
+            let date = DateFormatter.localizedString(from: entry.date, dateStyle: .short, timeStyle: .short)
+            return (entry.calibration, String(format: "%@，%d 點，平均誤差 %.1f → %.1f mm", date, entry.samples.count,
+                                              entry.errorBefore, entry.errorAfter))
+        }
+    }
+
+    /// 依目前設定為所有裝置重新套用校正（在 queue 上）
+    private func applyCalibration(reason: String) {
+        var changed = false
+        for device in devices.values.sorted(by: { $0.id < $1.id }) {
+            let resolved = calibration(for: device.info)
+            guard resolved?.0 != device.calibration else { continue }
+            device.calibration = resolved?.0
+            changed = true
+            if let (_, note) = resolved {
+                emitLog("裝置 #\(device.id) 套用觸控校正（\(reason)；\(note)）")
+            } else {
+                emitLog("裝置 #\(device.id) 不套用觸控校正（\(reason)）")
+            }
+        }
+        if changed {
+            publishDevices()
+            for device in devices.values { deviceHandler?(.reinitialized(device.info)) }
+        }
+    }
+
+    /// `.stored` 時每 2 秒檢查校正檔的修改時間：校正工具存檔後，執行中的程式（mtk-server、Unity）立即套用
+    private func startCalibrationWatcher() {
+        guard case .stored = configuration.calibration, !Self.calibrationDisabledByEnvironment else { return }
+        let store = TouchCalibrationStore(url: configuration.calibrationStoreURL)
+        calibrationFileDate = store.modificationDate
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 2, repeating: 2, leeway: .milliseconds(500))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            let date = store.modificationDate
+            guard date != calibrationFileDate else { return }
+            calibrationFileDate = date
+            applyCalibration(reason: "校正檔已更新")
+        }
+        calibrationTimer = timer
+        timer.resume()
+    }
+
     private func teardown() {
+        calibrationTimer?.cancel()
+        calibrationTimer = nil
         for device in devices.values.sorted(by: { $0.id < $1.id }) {
             if let frame = device.cancelTouches() { frameHandler?(frame) }
             device.cancel()
@@ -242,6 +321,8 @@ public final class MultiTouchManager: @unchecked Sendable {
         device.stalePolicy = ContactTracker.StalePolicy(timeout: max(0, configuration.staleTouchTimeout),
                                                         tolerance: configuration.staleTouchTolerance)
         device.reportTimeout = max(0, configuration.reportTimeout)
+        let resolvedCalibration = calibration(for: device.info)
+        device.calibration = resolvedCalibration?.0
         // weak：manager 釋放期間仍可能有一筆已排入 queue 的報告
         device.allocateTouchID = { [weak self] in
             guard let self else { return 0 }
@@ -263,6 +344,7 @@ public final class MultiTouchManager: @unchecked Sendable {
 
         var notes = [configuration.exclusive ? "已獨占" : "共用開啟"]
         if configuration.initializeMultiTouchMode { notes.append(device.initializeMultiTouchMode()) }
+        if let (_, note) = resolvedCalibration { notes.append("套用觸控校正（\(note)）") }
         if configuration.exclusive && configuration.seizeSiblingInterfaces {
             enumerateHIDServices { sibling in
                 let siblingInfo = HIDServiceInfo(service: sibling)

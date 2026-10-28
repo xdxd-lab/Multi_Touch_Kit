@@ -100,6 +100,7 @@ macOS 記錄授權時看的是程式的簽章身分（designated requirement）�
 | `touches[].x`, `y` | 0...1（小數 5 位） |
 | `touches[].rx`, `ry` | 控制器原始座標（ILITEK 為 0...9600） |
 | `touches[].p`, `w`, `h`, `conf` | 壓力、寬、高（0...1）、是否為有意觸碰；裝置支援才有（ILITEK 沒有） |
+| `touches[].ux`, `uy` | 套用觸控校正前的 x、y；只在該裝置套用校正時才有（`x`、`y` 為校正後的值）。校正工具（`mtk-viewer --calibrate`）以它收集原始位置 |
 
 每個 frame 包含所有仍在螢幕上的觸點（含 `stationary`）與這一次剛放開的觸點，所以單一 frame 就能得到完整狀態。所有手指離開後不再送 frame（不會送空 frame）。
 
@@ -107,18 +108,20 @@ macOS 記錄授權時看的是程式的簽章身分（designated requirement）�
 
 ```json
 {"type":"device","v":1,"event":"added","device":{"id":1,"vendorId":8746,"productId":1,
- "manufacturer":"ILITEK","product":"ILITEK-TP","maxContacts":10,"slotsPerReport":10,
- "widthMM":309.3,"heightMM":173.9,"exclusive":true}}
+ "manufacturer":"ILITEK","product":"ILITEK-TP","serial":"","locationId":1048576,"maxContacts":10,"slotsPerReport":10,
+ "widthMM":309.3,"heightMM":173.9,"exclusive":true,"calibrated":true}}
 ```
 
-`event`：`added`、`removed`、`reinitialized`（系統喚醒後，或偵測到控制器退回滑鼠模式時重新送出多點模式初始化）。`widthMM`／`heightMM` 為觸控面板實體尺寸，未知時省略。UDP 與 WebSocket 都會送。`--simulate` 不送 `device` 訊息。
+`event`：`added`、`removed`、`reinitialized`（系統喚醒後，或偵測到控制器退回滑鼠模式時重新送出多點模式初始化；套用的觸控校正改變時也會送出）。
+`serial`（沒有時為空字串）、`locationId`（USB 位置）用來識別裝置；`calibrated` 表示正在套用觸控校正。`widthMM`／`heightMM` 為觸控面板實體尺寸，未知時省略。UDP 與 WebSocket 都會送。`--simulate` 不送 `device` 訊息。
 
 ## `hello`：WebSocket 連線後的第一則訊息（只有 WebSocket）
 
 ```json
 {"type":"hello","v":1,"server":"mtk-server","version":"0.1.0",
  "devices":[{"id":1,"vendorId":8746,"productId":1,"manufacturer":"ILITEK","product":"ILITEK-TP",
-             "maxContacts":10,"slotsPerReport":10,"widthMM":309.3,"heightMM":173.9,"exclusive":true}],
+             "serial":"","locationId":1048576,"maxContacts":10,"slotsPerReport":10,"widthMM":309.3,"heightMM":173.9,
+             "exclusive":true,"calibrated":true}],
  "display":{"id":2,"name":"Sculptor (1)","edid":"6474:aa15:0","uuid":"2B0DA454-C0ED-4523-96BE-AFD4B00CD7FE",
             "main":false,"bounds":[1920,0,1920,1080],"pixels":[1920,1080],"hz":60}}
 ```

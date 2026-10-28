@@ -12,6 +12,9 @@ struct RawContact: Sendable, Equatable {
     var width: Double?
     var height: Double?
     var confidence: Bool?
+    /// 套用觸控校正前的 x、y（沒有校正時為 nil）
+    var uncalibratedX: Double?
+    var uncalibratedY: Double?
 }
 
 /// 一份觸控報告的解析結果

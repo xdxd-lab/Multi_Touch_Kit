@@ -116,5 +116,7 @@ private extension Touch {
         width = c.width
         height = c.height
         confidence = c.confidence
+        uncalibratedX = c.uncalibratedX
+        uncalibratedY = c.uncalibratedY
     }
 }
