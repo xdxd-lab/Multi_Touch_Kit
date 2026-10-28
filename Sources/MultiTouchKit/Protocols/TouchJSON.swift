@@ -6,20 +6,63 @@ public enum TouchJSON {
     public static let protocolVersion = 1
 
     public static func frame(_ frame: TouchFrame) -> String {
-        var s = "{\"type\":\"frame\",\"v\":\(protocolVersion),\"device\":\(frame.deviceID),\"seq\":\(frame.sequence),\"t\":\(frame.timestamp)"
-        if let scan = frame.scanTime { s += ",\"scan\":\(scan)" }
-        s += ",\"touches\":["
-        for (i, t) in frame.touches.enumerated() {
-            if i > 0 { s += "," }
-            s += "{\"id\":\(t.id),\"cid\":\(t.contactID),\"phase\":\"\(t.phase)\","
-            s += "\"x\":" + number(t.x) + ",\"y\":" + number(t.y) + ",\"rx\":\(t.rawX),\"ry\":\(t.rawY)"
-            if let p = t.pressure { s += ",\"p\":" + number(p) }
-            if let w = t.width { s += ",\"w\":" + number(w) }
-            if let h = t.height { s += ",\"h\":" + number(h) }
-            if let c = t.confidence { s += ",\"conf\":\(c)" }
-            s += "}"
+        var bytes: [UInt8] = []
+        frameBytes(frame, into: &bytes)
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    /// 與 `frame(_:)` 相同的內容（UTF-8），附加到 `bytes` 尾端。mtk-server 每 frame 重複使用同一個緩衝區，
+    /// 不經過 String／NSString：125 Hz × 10 指時每秒約 6000 個數字，`String(format:)` 是主要成本
+    package static func frameBytes(_ frame: TouchFrame, into bytes: inout [UInt8]) {
+        var w = ByteWriter(bytes: bytes)
+        bytes = []
+        w.reserve(96 + frame.touches.count * 128)
+        w.append("{\"type\":\"frame\",\"v\":")
+        w.append(protocolVersion)
+        w.append(",\"device\":")
+        w.append(frame.deviceID)
+        w.append(",\"seq\":")
+        w.append(frame.sequence)
+        w.append(",\"t\":")
+        w.append(frame.timestamp)
+        if let scan = frame.scanTime {
+            w.append(",\"scan\":")
+            w.append(UInt64(scan))
         }
-        return s + "]}"
+        w.append(",\"touches\":[")
+        for (i, t) in frame.touches.enumerated() {
+            if i > 0 { w.append(",") }
+            w.append("{\"id\":")
+            w.append(t.id)
+            w.append(",\"cid\":")
+            w.append(t.contactID)
+            w.append(",\"phase\":\"")
+            w.append(phaseName(t.phase))
+            w.append("\",\"x\":")
+            w.appendFixed5(t.x)
+            w.append(",\"y\":")
+            w.appendFixed5(t.y)
+            w.append(",\"rx\":")
+            w.append(t.rawX)
+            w.append(",\"ry\":")
+            w.append(t.rawY)
+            if let p = t.pressure {
+                w.append(",\"p\":")
+                w.appendFixed5(p)
+            }
+            if let width = t.width {
+                w.append(",\"w\":")
+                w.appendFixed5(width)
+            }
+            if let h = t.height {
+                w.append(",\"h\":")
+                w.appendFixed5(h)
+            }
+            if let c = t.confidence { w.append(c ? ",\"conf\":true" : ",\"conf\":false") }
+            w.append("}")
+        }
+        w.append("]}")
+        bytes = w.bytes
     }
 
     public static func device(_ info: MultiTouchDeviceInfo, event: String) -> String {
@@ -51,8 +94,11 @@ public enum TouchJSON {
         return s + ",\"exclusive\":\(d.exclusive)}"
     }
 
+    /// 與 `String(format: "%.5f", v)` 完全相同
     static func number(_ v: Double) -> String {
-        String(format: "%.5f", v)
+        var w = ByteWriter(bytes: [])
+        w.appendFixed5(v)
+        return String(decoding: w.bytes, as: UTF8.self)
     }
 
     static func escape(_ s: String) -> String {
@@ -69,5 +115,84 @@ public enum TouchJSON {
             }
         }
         return out
+    }
+
+    private static func phaseName(_ phase: TouchPhase) -> StaticString {
+        switch phase {
+        case .began: "began"
+        case .moved: "moved"
+        case .stationary: "stationary"
+        case .ended: "ended"
+        case .cancelled: "cancelled"
+        }
+    }
+}
+
+/// 把 ASCII 片段、整數與固定小數直接寫入位元組陣列（不經過 String）
+struct ByteWriter {
+    var bytes: [UInt8]
+
+    mutating func reserve(_ additional: Int) {
+        bytes.reserveCapacity(bytes.count + additional)
+    }
+
+    mutating func append(_ s: StaticString) {
+        bytes.append(contentsOf: UnsafeBufferPointer(start: s.utf8Start, count: s.utf8CodeUnitCount))
+    }
+
+    mutating func append(_ v: Int) {
+        if v < 0 {
+            bytes.append(UInt8(ascii: "-"))
+            append(v.magnitude)
+        } else {
+            append(UInt64(v))
+        }
+    }
+
+    mutating func append(_ v: UInt64) {
+        append(UInt(v))
+    }
+
+    mutating func append(_ v: UInt) {
+        // 最多 20 位數：先寫到堆疊上的 tuple 再反向複製
+        var digits: (UInt64, UInt64, UInt64) = (0, 0, 0)
+        var count = 0
+        var n = v
+        withUnsafeMutableBytes(of: &digits) { raw in
+            repeat {
+                raw[count] = UInt8(ascii: "0") + UInt8(n % 10)
+                n /= 10
+                count += 1
+            } while n > 0
+            for i in stride(from: count - 1, through: 0, by: -1) { bytes.append(raw[i]) }
+        }
+    }
+
+    /// 與 `String(format: "%.5f", v)` 完全相同。
+    ///
+    /// printf 依 v 的「精確二進位值」四捨五入（tie 時取偶數）。`v * 1e5` 有約 1e-11 的誤差，只有在真實值
+    /// 非常接近 .5 的邊界時才可能取錯，所以離邊界 1e-6 以內、或不在 0...1（含 -0.0、NaN）時交給 `String(format:)`。
+    mutating func appendFixed5(_ v: Double) {
+        guard v.sign == .plus, v <= 1 else {
+            bytes.append(contentsOf: String(format: "%.5f", v).utf8)
+            return
+        }
+        let scaled = v * 100_000
+        let floor = scaled.rounded(.down)
+        let fraction = scaled - floor
+        guard abs(fraction - 0.5) > 1e-6 else {
+            bytes.append(contentsOf: String(format: "%.5f", v).utf8)
+            return
+        }
+        let n = Int(floor) + (fraction > 0.5 ? 1 : 0) // 0...100000
+        bytes.append(UInt8(ascii: "0") + UInt8(n / 100_000))
+        bytes.append(UInt8(ascii: "."))
+        var rest = n % 100_000
+        var divisor = 10_000
+        for _ in 0..<5 {
+            bytes.append(UInt8(ascii: "0") + UInt8(rest / divisor))
+            rest %= divisor
+            divisor /= 10
+        }
     }
 }

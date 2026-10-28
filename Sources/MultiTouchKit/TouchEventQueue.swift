@@ -61,6 +61,24 @@ public struct TouchEventQueue<Event: QueuedTouchEvent>: Sendable {
     /// 依時間順序取出最多 `limit` 個事件
     public mutating func pop(limit: Int) -> [Event] {
         guard limit > 0 else { return [] }
+        var out: [Event] = []
+        out.reserveCapacity(min(limit, count + resyncEvents.count + (needsResync ? current.count + announced.count : 0)))
+        drain(limit: limit) { out.append($0) }
+        return out
+    }
+
+    /// 依時間順序直接寫入 `buffer`（不配置陣列），回傳寫入的數量。C API 的 mtk_poll_events 使用
+    package mutating func pop(into buffer: UnsafeMutableBufferPointer<Event>) -> Int {
+        var n = 0
+        drain(limit: buffer.count) { event in
+            buffer[n] = event
+            n += 1
+        }
+        return n
+    }
+
+    private mutating func drain(limit: Int, _ sink: (Event) -> Void) {
+        guard limit > 0 else { return }
         if needsResync {
             needsResync = false
             resyncs += 1
@@ -76,19 +94,21 @@ public struct TouchEventQueue<Event: QueuedTouchEvent>: Sendable {
             }
         }
         // 取出時才算「已交給使用者」（下次重新同步依此判斷）
-        var out = Array(resyncEvents.prefix(limit))
-        resyncEvents.removeFirst(out.count)
-        for e in out { note(e) }
-        let n = min(limit - out.count, count)
+        let fromResync = min(limit, resyncEvents.count)
+        for e in resyncEvents.prefix(fromResync) {
+            note(e)
+            sink(e)
+        }
+        resyncEvents.removeFirst(fromResync)
+        let n = min(limit - fromResync, count)
         for _ in 0..<n {
             let event = ring[head]!
             ring[head] = nil
             head = (head + 1) % capacity
             count -= 1
             note(event)
-            out.append(event)
+            sink(event)
         }
-        return out
     }
 
     private mutating func note(_ event: Event) {

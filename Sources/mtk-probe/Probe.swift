@@ -82,6 +82,7 @@ final class Probe: @unchecked Sendable {
     private var frames = 0
     private var cursorMoves = 0
     private var lastCursor: CGPoint?
+    private var cursorTimer: DispatchSourceTimer?
     private var csv = "t_ms,device,seq,scan,touches(id:cid:phase:x:y)\n"
 
     init(options: ProbeOptions) {
@@ -138,6 +139,7 @@ final class Probe: @unchecked Sendable {
             startTime = frame.timestamp
             print("偵測到觸控，開始記錄 \(Int(options.seconds)) 秒…")
             queue.asyncAfter(deadline: .now() + options.seconds) { [self] in finish() }
+            startCursorSampling()
         }
         frames += 1
         if lastActiveCount > 0 {
@@ -166,10 +168,6 @@ final class Probe: @unchecked Sendable {
         lastActiveCount = active
         lastScan = frame.scanTime
 
-        if let p = CGEvent(source: nil)?.location {
-            if let l = lastCursor, hypot(p.x - l.x, p.y - l.y) > 1 { cursorMoves += 1 }
-            lastCursor = p
-        }
         if options.csvPath != nil {
             let ms = Double(Int64(bitPattern: frame.timestamp &- startTime)) / 1e6
             let touches = frame.touches.map {
@@ -179,9 +177,23 @@ final class Probe: @unchecked Sendable {
         }
     }
 
+    /// 游標位置以 10 Hz 取樣：查詢游標是對 WindowServer 的 IPC，每個 frame（125 Hz）查一次會干擾量測本身
+    private func startCursorSampling() {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: 0.1)
+        timer.setEventHandler { [self] in
+            guard let p = CGEvent(source: nil)?.location else { return }
+            if let l = lastCursor, hypot(p.x - l.x, p.y - l.y) > 1 { cursorMoves += 1 }
+            lastCursor = p
+        }
+        cursorTimer = timer
+        timer.resume()
+    }
+
     private func finish() {
         guard !finished else { return }
         finished = true
+        cursorTimer?.cancel()
         manager?.stop()
         simulator?.stop()
         report()
@@ -225,7 +237,7 @@ final class Probe: @unchecked Sendable {
             print(String(format: "  全部放開→下一次按下：最短 %.1f ms、中位數 %.1f ms", releaseGaps.min()!, percentile(releaseGaps, 0.5)))
         }
         if !options.simulate {
-            print("\n記錄期間游標移動次數：\(cursorMoves)（獨占成功時應接近 0，除非你同時動了滑鼠）")
+            print("\n記錄期間游標移動次數（10 Hz 取樣）：\(cursorMoves)（獨占成功時應接近 0，除非你同時動了滑鼠）")
         }
         if let path = options.csvPath {
             do {
