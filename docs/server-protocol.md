@@ -46,8 +46,11 @@ scripts/uninstall-server-agent.sh
 #### 授權與簽章
 
 由 launchd 啟動的 mtk-server 需要自己的「輸入監控」權限（使用 `--gestures` 時另需「輔助使用」）。啟動時 mtk-server 會主動請求，
-系統會把 **MultiTouchKit Server** 加入 系統設定 → 隱私權與安全性 的這兩個清單並跳出詢問：**在清單中打開它的開關即可**，
-打開後自動生效（mtk-server 每 2 秒檢查一次，取得「輸入監控」後自動重新開啟觸控螢幕），不必重新啟動。
+系統會把 **MultiTouchKit Server** 加入 系統設定 → 隱私權與安全性 的這兩個清單並跳出詢問：**在清單中打開它的開關即可**。
+授權在已執行的程序內不會生效（觸控介面不需要「輸入監控」也能開啟，但一併獨占的滑鼠相容介面需要；原本的程序中仍會失敗），
+所以 mtk-server 每 3 秒以子程序檢查一次，發現新取得的授權就正常收尾並結束，由 LaunchAgent 以新的程序重新啟動
+（launchd 的節流可能讓重新啟動延後到約 10 秒；紀錄檔會出現「授權：已取得…」「結束並由 LaunchAgent 重新啟動」）。
+手動重新啟動：`launchctl kickstart -k gui/$UID/com.xdxd-lab.multitouchkit.server`。
 清單中沒有出現時，可用「＋」選取 `~/Library/Application Support/MultiTouchKit/MultiTouchKit Server.app`（在選檔視窗按 ⌘⇧G 輸入路徑）。
 紀錄檔中的「授權：」開頭訊息會說明目前缺少哪一項。
 

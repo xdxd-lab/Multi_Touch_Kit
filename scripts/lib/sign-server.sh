@@ -55,7 +55,7 @@ mtk_report_authorization() {
     local before=$1 after=$2 identity=$3
     if [[ -z "$before" ]]; then
         echo "第一次安裝：mtk-server 啟動時會請求授權，系統會把「MultiTouchKit Server」加入 系統設定 → 隱私權與安全性 →「輸入監控」"
-        echo "  （使用 --gestures 時還有「輔助使用」）並跳出詢問。在清單中打開它的開關即可，打開後自動生效、不必重新啟動"
+        echo "  （使用 --gestures 時還有「輔助使用」）並跳出詢問。在清單中打開它的開關即可；mtk-server 偵測到後會自動重新啟動以套用（約 10 秒內）"
     elif [[ "$before" == "$after" ]]; then
         echo "簽章身分沒有改變：「輔助使用」「輸入監控」的授權仍有效"
     else
