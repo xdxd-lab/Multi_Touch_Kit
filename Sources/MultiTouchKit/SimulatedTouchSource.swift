@@ -6,6 +6,8 @@ import Foundation
 /// - `.drums`（預設）：一指持續畫圓、一指每 2 秒滑動 1 秒、下方四個「鼓面」位置每 0.25 秒輪流點擊一次（每次按 40 ms）。
 /// - `.gestures`：每 12 秒依序做出點擊、雙擊、長按、兩指點擊、兩指甩動捲動、捏合、旋轉、三指左滑、四指上滑、一指拖曳，
 ///   用來驗證手勢辨識（mtk-server --simulate-pattern gestures）。
+/// - `.calibration`：每 0.4 秒依序點一次 9 個校正十字（10%／50%／90%），位置帶有固定的面板偏差與少許雜訊，
+///   用來展示與測試 mtk-viewer --calibrate。
 public final class SimulatedTouchSource: @unchecked Sendable {
     /// 模擬來源的 `TouchFrame.deviceID`（實體裝置從 1 開始，不會衝突）
     public static let deviceID = 0
@@ -14,6 +16,7 @@ public final class SimulatedTouchSource: @unchecked Sendable {
     public enum Pattern: String, Sendable, CaseIterable {
         case drums
         case gestures
+        case calibration
     }
 
     /// 每秒產生的 frame 數（預設 125，與 ILITEK 相同）
@@ -104,11 +107,24 @@ public final class SimulatedTouchSource: @unchecked Sendable {
             }
         case .gestures:
             for c in Self.gestureScript(at: t.truncatingRemainder(dividingBy: 12)) { contact(c.id, c.x, c.y) }
+        case .calibration:
+            if let c = Self.calibrationTap(at: t) { contact(0, c.x, c.y) }
         }
         emit(tracker.update(contacts) {
             defer { nextTouchID += 1 }
             return nextTouchID
         }, at: now)
+    }
+
+    /// `.calibration` 模式在時間 t（秒）的觸點：每 0.4 秒點 120 ms，依序輪流 9 個十字
+    static func calibrationTap(at t: Double) -> (x: Double, y: Double)? {
+        let step = Int(t / 0.4)
+        guard t - Double(step) * 0.4 < 0.12 else { return nil }
+        let targets = [0.1, 0.5, 0.9]
+        let tx = targets[step % 3], ty = targets[(step / 3) % 3]
+        // 面板偏差（上列偏下、右上偏左下）＋每次點擊不同的雜訊（±0.3%）
+        let noise = { (k: Int) in Double((step &* 7919 &+ k &* 104_729) % 61 - 30) / 10_000 }
+        return (0.008 + 0.975 * tx + 0.012 * tx * (1 - ty) + noise(1), 0.012 + 0.982 * ty - 0.01 * tx * (1 - ty) + noise(2))
     }
 
     /// `.gestures` 模式在週期內時間 t（秒）的觸點

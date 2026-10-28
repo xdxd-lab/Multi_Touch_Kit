@@ -36,5 +36,12 @@ check("斷線後清除觸點（不留幽靈圓點）", !arcs.some((a) => a.r ===
 render();
 check("斷線狀態不會被下一幀覆蓋", hudText.startsWith("連線中斷"), hudText.split("\n")[0]);
 check("狀態燈：斷線", elements.panel.dataset.connected === "false");
+// D 模式：面板移位並顯示校正狀態
+debug = true;
+send({ type: "hello", devices: [{ id: 1, product: "ILITEK-TP", maxContacts: 10, calibrated: true }], display: panelDisplay });
+sockets[0].onopen();
+render();
+check("D 模式面板移位", elements.panel.dataset.debug === "true");
+check("D 模式顯示已套用校正", hudText.includes("觸控校正：已套用"));
 print(pageFailures === 0 ? "PAGE ALL PASS" : `${pageFailures} PAGE FAIL`);
 if (pageFailures) throw new Error(`${pageFailures} 項失敗`);

@@ -11,6 +11,7 @@ macOS 上的 HID 多點觸控螢幕驅動（使用者空間），讓 Sculptor MF
 
 - GitHub：[xdxd-lab/multi_touch_kit](https://github.com/xdxd-lab/multi_touch_kit)
 - 背景、方案決策與實機量測：[docs/PRE_ANALYSIS.md](docs/PRE_ANALYSIS.md)
+- 觸控位置有小偏差時：`mtk-viewer --calibrate` 建立 9 點觸控校正（見 [docs/swift-package.md 觸控校正](docs/swift-package.md#觸控校正)）
 
 ## 為什麼需要它
 
