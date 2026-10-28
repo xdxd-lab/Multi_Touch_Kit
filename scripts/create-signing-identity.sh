@@ -24,7 +24,10 @@ if [[ "${1:-}" == "--remove" ]]; then
         echo "沒有「$NAME」，不需要移除"
         exit 0
     fi
-    security delete-identity -c "$NAME" "$KEYCHAIN" >/dev/null
+    # 以 SHA-1 逐一刪除名稱完全相同的身分：delete-identity -c 是子字串比對，可能刪到名稱相近的其他憑證
+    security find-identity -p codesigning "$KEYCHAIN" | grep -F "\"$NAME\"" | awk '{print $2}' | sort -u | while read -r hash; do
+        security delete-identity -Z "$hash" "$KEYCHAIN" >/dev/null
+    done
     echo "已移除「$NAME」。之後 install-server-agent.sh 會改用 ad-hoc 簽章（每次更新都要重新授權）"
     exit 0
 elif [[ $# -gt 0 ]]; then
