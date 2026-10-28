@@ -42,6 +42,11 @@ final class TouchDevice: @unchecked Sendable {
     private var reportMonitor = ReportTimeoutMonitor(timeout: 0.5)
     private var reportWatchdog: DispatchSourceTimer?
 
+    /// 觸控校正（nil = 不校正）；在觸點追蹤之前套用，所以所有出口（含 stale 判斷）都用校正後的座標
+    var calibration: TouchCalibration? {
+        didSet { info.isCalibrated = calibration != nil }
+    }
+
     /// 長時間完全不動的觸點視為誤觸並取消（見 MultiTouchManager.Configuration.staleTouchTimeout）
     var stalePolicy: ContactTracker.StalePolicy {
         get { tracker.stalePolicy }
@@ -151,7 +156,16 @@ final class TouchDevice: @unchecked Sendable {
         let parsed = layout.parse(UnsafeBufferPointer(start: report + skip, count: length - skip))
         guard let frame = assembler.add(parsed, timestamp: MultiTouchClock.nanoseconds(fromHostTime: hostTime)) else { return }
         reportMonitor.reportReceived(at: MultiTouchClock.now())
-        let touches = tracker.update(frame.contacts, at: frame.timestamp, allocateID: allocateTouchID)
+        var contacts = frame.contacts
+        if let calibration {
+            for i in contacts.indices {
+                let raw = (x: contacts[i].x, y: contacts[i].y)
+                (contacts[i].x, contacts[i].y) = calibration.apply(x: raw.x, y: raw.y)
+                contacts[i].uncalibratedX = raw.x
+                contacts[i].uncalibratedY = raw.y
+            }
+        }
+        let touches = tracker.update(contacts, at: frame.timestamp, allocateID: allocateTouchID)
         for t in touches where t.phase == .cancelled {
             log(String(format: "觸點 #%llu（contact %d）已 %.0f 秒幾乎不動，視為誤觸並取消（可能是線材或物體碰到面板）",
                        t.id, t.contactID, tracker.stalePolicy.timeout))

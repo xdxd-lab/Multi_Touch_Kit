@@ -57,6 +57,8 @@ mtk_stop();
 | `int32_t mtk_poll_events(MTKTouchEvent *, int32_t cap)` | 依時間順序取出事件，回傳數量 | 任意 |
 | `uint64_t mtk_dropped_event_count(void)` | 佇列溢位（或重新同步）時丟棄的過時事件總數（觸點狀態不會遺失，見下） | 任意 |
 | `void mtk_request_resync(void)` | 下一次 `mtk_poll_events` 先依目前觸點狀態重新同步（App 回到前景時對帳） | 任意 |
+| `void mtk_set_calibration_enabled(int32_t enabled)` | 觸控校正的開關（預設開啟；見 [swift-package.md 觸控校正](swift-package.md#觸控校正)）。`mtk_start` 前後皆可，立即生效 | 任意 |
+| `int32_t mtk_is_calibrated(int32_t index)` | 第 index 個裝置是否正在套用校正：1／0；沒有這個裝置時 `MTK_ERR_OUT_OF_RANGE` | 任意 |
 | `void mtk_set_event_callback(cb, user_data)` | 即時回呼；`NULL` 取消。返回後保證舊回呼不再被呼叫 | 任意（含回呼內） |
 | `int32_t mtk_device_count(void)` | 已開啟的裝置數 | 任意 |
 | `int32_t mtk_get_device_info(int32_t index, MTKDeviceInfo *)` | 第 index 台裝置資訊 | 任意 |

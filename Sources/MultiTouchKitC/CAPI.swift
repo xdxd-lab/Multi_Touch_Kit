@@ -22,6 +22,8 @@ final class CRuntime: @unchecked Sendable {
     private var queue = TouchEventQueue<MTKTouchEvent>(capacity: 4096)
     private var reportedResyncs: UInt64 = 0
     private var reportStationary = false
+    /// mtk_set_calibration_enabled（mtk_start 前後皆可設定）
+    private var calibrationEnabled = true
     private var callback: MTKEventCallback?
     private var callbackUserData: UnsafeMutableRawPointer?
     private var logs: [String] = []
@@ -61,6 +63,7 @@ final class CRuntime: @unchecked Sendable {
             reportStationary = config.report_stationary != 0
         }
         let manager = MultiTouchManager(configuration: configuration)
+        manager.isCalibrationEnabled = lock.withLock { calibrationEnabled }
         manager.logHandler = { [weak self] in self?.appendLog($0) }
         manager.deviceHandler = { [weak self] _ in self?.bumpDeviceGeneration() }
         let includeStationary = config.report_stationary != 0
@@ -115,6 +118,14 @@ final class CRuntime: @unchecked Sendable {
         }
         if let note { appendLog(note) }
         return count
+    }
+
+    func setCalibrationEnabled(_ enabled: Bool) {
+        let manager = lock.withLock { () -> MultiTouchManager? in
+            calibrationEnabled = enabled
+            return self.manager
+        }
+        manager?.isCalibrationEnabled = enabled
     }
 
     func requestResync() {
@@ -238,6 +249,18 @@ public func mtkDroppedEventCount() -> UInt64 { CRuntime.shared.droppedCount }
 @_cdecl("mtk_set_event_callback")
 public func mtkSetEventCallback(_ callback: MTKEventCallback?, _ userData: UnsafeMutableRawPointer?) {
     CRuntime.shared.setCallback(callback, userData)
+}
+
+@_cdecl("mtk_set_calibration_enabled")
+public func mtkSetCalibrationEnabled(_ enabled: Int32) {
+    CRuntime.shared.setCalibrationEnabled(enabled != 0)
+}
+
+@_cdecl("mtk_is_calibrated")
+public func mtkIsCalibrated(_ index: Int32) -> Int32 {
+    let devices = CRuntime.shared.devices
+    guard index >= 0, Int(index) < devices.count else { return MTK_ERR_OUT_OF_RANGE }
+    return devices[Int(index)].isCalibrated ? 1 : 0
 }
 
 @_cdecl("mtk_device_count")

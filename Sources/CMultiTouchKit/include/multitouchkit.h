@@ -117,6 +117,15 @@ void mtk_request_resync(void);
  * 可以立即釋放舊的 user_data。 */
 void mtk_set_event_callback(MTKEventCallback callback, void *user_data);
 
+/*
+ * 觸控校正（mtk-viewer --calibrate 建立的 ~/Library/Application Support/MultiTouchKit/calibration.json）：
+ * 有該裝置的校正時自動套用到事件的 x、y（預設開啟；環境變數 MTK_CALIBRATION=off 時停用）。
+ * mtk_set_calibration_enabled 可在 mtk_start 前後呼叫，立即生效；任何執行緒皆可呼叫。
+ */
+void mtk_set_calibration_enabled(int32_t enabled);
+/* 第 index 個裝置是否正在套用校正：1 = 是、0 = 否、MTK_ERR_OUT_OF_RANGE = 沒有這個裝置。 */
+int32_t mtk_is_calibrated(int32_t index);
+
 /* 目前開啟的觸控螢幕數；裝置插拔時會改變。 */
 int32_t mtk_device_count(void);
 /* 第 index 個裝置（0 起算）的資訊。info 為 NULL 回傳 MTK_ERR_INVALID_ARGUMENT，超出範圍回傳 MTK_ERR_OUT_OF_RANGE。 */

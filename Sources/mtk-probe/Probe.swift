@@ -10,6 +10,7 @@ struct ProbeOptions {
     var simulate = false
     var exclusive = true
     var staleTouchTimeout: Double?
+    var calibration = true
 
     static let usage = """
     用法：mtk-probe [選項]
@@ -19,6 +20,7 @@ struct ProbeOptions {
       --shared        不獨占裝置（系統游標仍會跟著動）
       --simulate      使用模擬觸控（不需要硬體）
       --stale-touch-timeout SEC  誤觸：觸點幾乎不動超過 SEC 秒就取消（預設 30，0 = 關閉）
+      --no-calibration  不套用觸控校正（量測控制器的原始座標）
     """
 
     static func parse(_ arguments: [String]) -> ProbeOptions {
@@ -32,6 +34,7 @@ struct ProbeOptions {
             case "--shared": o.exclusive = false
             case "--simulate": o.simulate = true
             case "--stale-touch-timeout": o.staleTouchTimeout = args.staleTouchTimeout()
+            case "--no-calibration": o.calibration = false
             default: args.unknown(a)
             }
         }
@@ -89,6 +92,7 @@ final class Probe: @unchecked Sendable {
             var configuration = MultiTouchManager.Configuration()
             configuration.exclusive = options.exclusive
             if let v = options.staleTouchTimeout { configuration.staleTouchTimeout = v }
+            if !options.calibration { configuration.calibration = .disabled }
             let manager = MultiTouchManager(configuration: configuration)
             manager.logHandler = { print($0) }
             source = manager

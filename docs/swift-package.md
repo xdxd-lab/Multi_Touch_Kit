@@ -123,6 +123,24 @@ let cocoa = mapping.cocoaPoint(x: touch.x, y: touch.y)     // 全域 Cocoa 座�
 - 螢幕在「顯示器」設定中旋轉時設定 `rotation`；面板方向相反時用 `flipX`／`flipY`。
 - `mtk-viewer --display SEL`、`mtk-server --display SEL` 使用相同格式；`--list-displays` 可列出目前的顯示器。
 
+## 觸控校正
+
+面板與 LCD 的對位不完美時（MF156LR 實測各角落有方向不同的小偏差），可以用 `mtk-viewer --calibrate` 建立校正，
+存在 `~/Library/Application Support/MultiTouchKit/calibration.json`。之後 MultiTouchManager 會自動套用：觸點的 `x`、`y` 是校正後的值，
+校正前的值在 `uncalibratedX`／`uncalibratedY`（沒有套用時為 nil）。所有出口一致（Swift、C、Unity、mtk-server、手勢、viewer）。
+
+- 模型：每軸一個二次多項式，以最小平方擬合 9 個校正點，並以 leave-one-out 剔除一個離群點；點數或分布不足時退回仿射（`TouchCalibration`）。
+- 比對：同一個 VID／PID（序號非空時也要相同）；同 VID／PID 有多筆時優先相同的 USB 位置。
+- 即時生效：每 2 秒檢查校正檔，存檔後執行中的程式（mtk-server、Unity）立即套用並記錄在 log。
+- 停用：`config.calibration = .disabled`；執行期間切換 `manager.isCalibrationEnabled`；環境變數 `MTK_CALIBRATION=off` 讓所有程式停用；
+  mtk-server／mtk-probe 的 `--no-calibration`；C API `mtk_set_calibration_enabled(0)`；Unity Manager 的 `applyCalibration`。
+- 自訂：`config.calibration = .custom(TouchCalibration(…))`；讀寫校正檔用 `TouchCalibrationStore`。
+
+```swift
+var config = MultiTouchManager.Configuration()
+config.calibration = .disabled          // 預設 .stored（有校正就套用）
+```
+
 ## 時鐘
 
 `MultiTouchClock.now()` 與 `timestamp` 同一時基（同一台 Mac 所有程序共用），可直接相減得到「收到觸控到現在」的時間，也能和 `mtk-server` 送出的 `t` 比較。

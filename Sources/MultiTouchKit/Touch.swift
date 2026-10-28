@@ -52,10 +52,14 @@ public struct Touch: Sendable, Equatable {
     public var height: Double?
     /// 控制器判斷是否為有意的觸碰（false 通常是手掌）；不支援時為 nil
     public var confidence: Bool?
+    /// 套用觸控校正前的正規化座標（`TouchCalibration`）；沒有套用校正時為 nil，x、y 就是原始值
+    public var uncalibratedX: Double?
+    public var uncalibratedY: Double?
 
     /// 一般由 MultiTouchManager 建立；測試或自訂的觸控來源可自行建立
     public init(id: UInt64, contactID: Int, phase: TouchPhase, x: Double, y: Double, rawX: Int, rawY: Int,
-                pressure: Double? = nil, width: Double? = nil, height: Double? = nil, confidence: Bool? = nil) {
+                pressure: Double? = nil, width: Double? = nil, height: Double? = nil, confidence: Bool? = nil,
+                uncalibratedX: Double? = nil, uncalibratedY: Double? = nil) {
         self.id = id
         self.contactID = contactID
         self.phase = phase
@@ -67,6 +71,8 @@ public struct Touch: Sendable, Equatable {
         self.width = width
         self.height = height
         self.confidence = confidence
+        self.uncalibratedX = uncalibratedX
+        self.uncalibratedY = uncalibratedY
     }
 }
 
@@ -124,11 +130,13 @@ public struct MultiTouchDeviceInfo: Sendable, Hashable {
     public var hasScanTime: Bool
     /// 已獨占：系統不再把觸控當成滑鼠
     public var exclusive: Bool
+    /// 正在套用觸控校正（`TouchCalibration`）
+    public var isCalibrated: Bool
 
     /// 一般由 MultiTouchManager 建立；自行建立可用於測試或模擬（例如傳給 `DisplayLocator.resolve(_:panel:)`）
     public init(id: Int, vendorID: Int, productID: Int, manufacturer: String, product: String, serialNumber: String,
                 locationID: Int, maxContacts: Int, slotsPerReport: Int, physicalWidthMillimeters: Double?,
-                physicalHeightMillimeters: Double?, hasScanTime: Bool, exclusive: Bool) {
+                physicalHeightMillimeters: Double?, hasScanTime: Bool, exclusive: Bool, isCalibrated: Bool = false) {
         self.id = id
         self.vendorID = vendorID
         self.productID = productID
@@ -142,6 +150,7 @@ public struct MultiTouchDeviceInfo: Sendable, Hashable {
         self.physicalHeightMillimeters = physicalHeightMillimeters
         self.hasScanTime = hasScanTime
         self.exclusive = exclusive
+        self.isCalibrated = isCalibrated
     }
 }
 

@@ -74,6 +74,9 @@ namespace MultiTouchKit
         public bool logNativeMessages = true;
         /// <summary>切換場景時保留這個 Manager（只在它是根物件時有效）。</summary>
         public bool dontDestroyOnLoad = true;
+        /// <summary>Native 模式：套用 mtk-viewer --calibrate 建立的觸控校正（有該裝置的校正時）。Udp 模式由 mtk-server 決定。</summary>
+        [Tooltip("套用觸控校正（mtk-viewer --calibrate 建立；有該裝置的校正時）。Udp 模式由 mtk-server 決定（--no-calibration）")]
+        public bool applyCalibration = true;
         /// <summary>Awake 時設定 Application.runInBackground，失去焦點時繼續接收觸控。</summary>
         [Tooltip("失去焦點時繼續執行（Application.runInBackground）。觸控螢幕通常是第二螢幕，使用者點主螢幕時遊戲仍要接收觸控；" +
                  "關閉時失焦期間的觸控會在回到前景時依目前狀態重新同步")]
@@ -195,7 +198,7 @@ namespace MultiTouchKit
         {
             if (m_Transport != null) return;
             IMultiTouchTransport created = transport == TransportMode.Native
-                ? new NativeTransport(exclusive, vendorId, productId, false, logNativeMessages, staleTouchTimeout)
+                ? new NativeTransport(exclusive, vendorId, productId, false, logNativeMessages, staleTouchTimeout, applyCalibration)
                 : (IMultiTouchTransport)new UdpTransport(udpPort, false, udpBindAddress, udpTimeout);
             if (!created.Start())
             {
