@@ -5,7 +5,8 @@
 > 狀態（2026-10）：
 > - **已在 Unity 6000.3.27f1 實機驗證**（MF156LR、Native 傳輸、Touch Visualizer、編輯器內 Play Maximized）：10 點正常；失焦時不凍結也不殘留觸點；滑鼠線誤觸不再產生持續觸點；單指長按不會被誤取消（紀錄見 [hardware/mf156lr-summary.md](hardware/mf156lr-summary.md)）。
 > - 已知：編輯器 Game 視窗不是全螢幕時，水平位置與手指略有偏差；待以獨立 App 全螢幕驗證。
-> - 程式碼審查（[reviews/2026-10-code-review.md](reviews/2026-10-code-review.md)）後的修正，包括換場景時重複的 Manager、Udp 逾時與對帳、零 GC、`GetActiveTouches`，都以 `scripts/test-unity-offline.sh` 離線驗證，**待在 Unity 內實機確認**。
+> - 程式碼審查（[reviews/2026-10-code-review.md](reviews/2026-10-code-review.md)）後的修正，2026-10-29 已在 Unity 內實機確認：Native 回歸正常；Profiler（Deep Profile）`PollNow` 與範例 `OnGUI` GC Alloc 皆 0 B（`PlayerLoop` 約 1.3 KB 為編輯器本身開銷，與觸碰無關）；Udp 傳輸搭配 `mtk-server` 顯示正常；`mtk-server` 被 `kill -9` 後按住的觸點在逾時後 Cancelled；Play 中加入重複的 Manager 會被移除，觸控與 Input System 裝置不受影響。
+> - 待驗證：`ScreenMapping = KeyWindow` 的座標（編輯器內的 key window 是整個編輯器，需以獨立 App 驗證）。
 > - bundle 已以 Python ctypes 在 arm64／x86_64 驗證可載入並開啟觸控螢幕。
 
 ## 安裝
