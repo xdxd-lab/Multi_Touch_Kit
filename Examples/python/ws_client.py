@@ -11,6 +11,9 @@ import sys
 import time
 from urllib.parse import urlparse
 
+# 每行立即輸出：被 timeout／管線強制結束時才不會遺失緩衝中的輸出
+sys.stdout.reconfigure(line_buffering=True)
+
 url = urlparse(sys.argv[1] if len(sys.argv) > 1 else "ws://127.0.0.1:7778")
 duration = float(sys.argv[2]) if len(sys.argv) > 2 else 0
 sock = socket.create_connection((url.hostname, url.port or 80))

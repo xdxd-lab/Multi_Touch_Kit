@@ -7,6 +7,9 @@ import json
 import socket
 import sys
 
+# 每行立即輸出：被 timeout／管線強制結束時才不會遺失緩衝中的輸出
+sys.stdout.reconfigure(line_buffering=True)
+
 port = int(sys.argv[1]) if len(sys.argv) > 1 else 7777
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind(("127.0.0.1", port))

@@ -49,7 +49,12 @@ public class Drums : MonoBehaviour
 
 - `TouchReceived`：每個事件（began／moved／ended／cancelled，預設不含 stationary）在主執行緒觸發一次。
 - `MultiTouchKitManager.Instance.ActiveTouches`：目前仍在螢幕上的觸點（key = `Id`）。
-- `TouchesThisFrame`：這一幀收到的所有事件，依時間順序。
+- `GetActiveTouches(List<MultiTouchTouch>)`：把仍在螢幕上的觸點依 `Id` 排序複製到你的 List，重複使用同一個 List 時不配置記憶體。每幀列舉請用它，不要 `foreach (… ActiveTouches.Values)`（透過介面列舉每次都會配置）。
+- `TouchesThisFrame`：這一幀收到的所有事件，依時間順序（用 `for` 與索引讀取）。
+
+### GC
+
+穩定狀態下 MultiTouchKit 每幀不配置記憶體：Native 傳輸直接把原生事件複製到固定的陣列；Udp 傳輸在接收執行緒用固定的緩衝區接收，並以專用的解析器直接讀取 UTF-8 位元組（不經過字串與 JsonUtility）。範例的 OnGUI 也只在內容改變時才重建字串。可在 Profiler 的 CPU 模組看 `MultiTouchKitManager.PollNow` 的 GC Alloc 欄位確認。
 - 有 Input System 時，`MultiTouchKitManager` 會在 Input System 更新前取出觸控，遊戲當幀就讀得到。
 
 `MultiTouchTouch` 欄位：`Id`（每次觸碰唯一）、`ContactId`、`DeviceId`、`Phase`、`Normalized`（0..1，原點左上）、`ScreenPosition`、`TimestampNs`、`Pressure`（不支援為 -1）、`FrameSequence`，以及換算屬性 `DspTime`、`RealtimeSinceStartup`。
@@ -79,7 +84,7 @@ public class Drums : MonoBehaviour
 
 - Unity 失去焦點或暫停時若停止 Update，原生佇列可能溢位。溢位**不會遺失觸點狀態**：回來後第一次取出時會先重新同步（已離開的觸點 Cancelled、仍在的 Began／Moved），Console 會出現警告與丟棄筆數（`DroppedEventCount`）。`OnApplicationFocus(true)`／`OnApplicationPause(false)` 時 Manager 也會主動 `RequestResync()` 對帳。
 - 長時間不動的觸點（例如滑鼠線碰到面板）會在 `staleTouchTimeout` 秒後以 Cancelled 取消。**遊戲請把 Cancelled 當成放開**（長按音符判失敗），不要當作仍按著。
-- TouchVisualizer 讀的是 `ActiveTouches`（原生觸點），不是 Input System；本套件不會啟用 Input System 的 TouchSimulation（滑鼠模擬觸控）。
+- TouchVisualizer 讀的是 `GetActiveTouches`（原生觸點），不是 Input System；本套件不會啟用 Input System 的 TouchSimulation（滑鼠模擬觸控）。
 
 ## 選擇傳輸方式
 
@@ -118,5 +123,7 @@ foreach (var t in UnityEngine.InputSystem.EnhancedTouch.Touch.activeTouches) { /
 外掛 `Runtime/Plugins/macOS/MultiTouchKit.bundle` 已設定為 Editor（OSX）與 Standalone OSXUniversal，建置時自動包入。bundle 為 ad-hoc 簽章；若要簽章／公證你的 App，請連同 bundle 以你的身分重新簽章。執行檔首次開啟觸控螢幕時可能需要授權「輸入監控」。
 
 ## 更新原生外掛
+
+C# 改動後可執行 `scripts/test-unity-offline.sh`：不開 Editor，用 Unity 內建的 Roslyn 編譯 Runtime（多組 define）與範例，再用內建的 dotnet 跑 Udp 傳輸與 JSON 解析器的測試（行為、與 System.Text.Json 的差分測試、零配置）。
 
 原生程式碼（`Sources/MultiTouchKit`、`Sources/MultiTouchKitC`）改動後執行 `scripts/build-unity-plugin.sh`，並 commit 產出的 bundle。新增 C# 檔後執行 `python3 scripts/generate-unity-meta.py`（以 git URL 安裝的套件是唯讀的，缺 `.meta` 的檔案會被忽略）。C# 結構必須與 `multitouchkit.h` 一致（見 [c-api.md](c-api.md)）。

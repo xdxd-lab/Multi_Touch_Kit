@@ -11,6 +11,9 @@ import pathlib
 import sys
 import time
 
+# 每行立即輸出：被 timeout／管線強制結束時才不會遺失緩衝中的輸出
+sys.stdout.reconfigure(line_buffering=True)
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CANDIDATES = [
     ROOT / ".build/release/libMultiTouchKitC.dylib",
