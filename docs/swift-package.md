@@ -153,5 +153,5 @@ try source.start()
 ## 權限與發布
 
 - 獨占 HID 裝置可能需要「輸入監控」權限；`IOHIDDeviceOpen` 回傳 `0xe00002e2`（not permitted）時請到系統設定授權執行的 App。
-- 每次重新簽章（ad-hoc 簽章的程式每次建置都會變）系統可能要求重新授權。
+- 授權綁定的是程式的簽章身分：ad-hoc 簽章的程式每次建置都不同，需要重新授權；以固定的憑證簽章（Developer ID，或本機用的自簽憑證，見 [server-protocol.md 授權與簽章](server-protocol.md#授權與簽章)）時，更新後授權仍有效。
 - App Sandbox 下的行為尚未驗證，建議先以非沙盒 App 發布。
