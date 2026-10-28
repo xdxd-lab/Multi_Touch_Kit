@@ -108,9 +108,48 @@ PluginImporter:
 """
 
 
+# 編輯器圖示：Editor GUI 貼圖、不產生 mipmap、保留透明（MultiTouchKitManager 元件圖示）
+TEXTURE = """fileFormatVersion: 2
+guid: {guid}
+TextureImporter:
+  internalIDToNameTable: []
+  externalObjects: {{}}
+  serializedVersion: 12
+  mipmaps:
+    enableMipMap: 0
+    sRGBTexture: 1
+  isReadable: 0
+  textureFormat: 1
+  maxTextureSize: 256
+  textureSettings:
+    serializedVersion: 2
+    filterMode: 1
+    aniso: 1
+    mipBias: 0
+    wrapU: 1
+    wrapV: 1
+    wrapW: 1
+  alphaUsage: 1
+  alphaIsTransparency: 1
+  textureType: 2
+  textureShape: 1
+  spriteMode: 0
+  platformSettings:
+  - serializedVersion: 3
+    buildTarget: DefaultTexturePlatform
+    maxTextureSize: 256
+    textureCompression: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+"""
+
+
 def template(path: pathlib.Path) -> str:
     if path.suffix == ".bundle":
         return PLUGIN
+    if path.suffix == ".png":
+        return TEXTURE
     if path.is_dir():
         return FOLDER
     if path.suffix == ".cs":

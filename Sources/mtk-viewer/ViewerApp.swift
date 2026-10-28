@@ -1,6 +1,7 @@
 // mtk-viewer：全螢幕顯示每根手指的位置與編號，用來目視確認 10 點觸控。Esc 或 Q 離開。
 import AppKit
 import MultiTouchKit
+import MultiTouchKitArt
 
 @main
 @MainActor
@@ -21,6 +22,8 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
         shared = delegate
         app.delegate = delegate
         app.setActivationPolicy(.regular)
+        // 純執行檔沒有 bundle 圖示：Dock 中顯示品牌圖示（與 MultiTouchKit Server.app 相同）
+        app.applicationIconImage = BrandIcon.applicationIcon
         app.run()
     }
 

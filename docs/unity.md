@@ -132,3 +132,7 @@ foreach (var t in UnityEngine.InputSystem.EnhancedTouch.Touch.activeTouches) { /
 C# 改動後可執行 `scripts/test-unity-offline.sh`：不開 Editor，用 Unity 內建的 Roslyn 編譯 Runtime（多組 define）與範例，再用內建的 dotnet 跑 Udp 傳輸與 JSON 解析器的測試（行為、與 System.Text.Json 的差分測試、零配置）。
 
 原生程式碼（`Sources/MultiTouchKit`、`Sources/MultiTouchKitC`）改動後執行 `scripts/build-unity-plugin.sh`，並 commit 產出的 bundle。新增 C# 檔後執行 `python3 scripts/generate-unity-meta.py`（以 git URL 安裝的套件是唯讀的，缺 `.meta` 的檔案會被忽略）。C# 結構必須與 `multitouchkit.h` 一致（見 [c-api.md](c-api.md)）。
+
+## 圖示
+
+`MultiTouchKitManager` 元件在 Inspector 與 Add Component 選單中使用 MultiTouchKit 的品牌圖示（`Editor/Icons/MultiTouchKitManager.png`，由 `scripts/generate-art.sh` 產生；放在 `Editor` 資料夾，不會包進遊戲）。

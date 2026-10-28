@@ -8,11 +8,13 @@
 MTK_SERVER_APP_NAME="MultiTouchKit Server"
 MTK_SERVER_APP_EXECUTABLE=mtk-server
 
-# 建立 app bundle：$1 = 編好的 mtk-server、$2 = .app 路徑（不可已存在）、$3 = 版本
+# 建立 app bundle：$1 = 編好的 mtk-server、$2 = .app 路徑（不可已存在）、$3 = 版本、$4 = 圖示 .icns（可省略）
 mtk_build_server_app() {
-    local binary=$1 app=$2 version=$3
-    mkdir -p "$app/Contents/MacOS"
+    local binary=$1 app=$2 version=$3 icon=${4:-}
+    mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
     cp "$binary" "$app/Contents/MacOS/$MTK_SERVER_APP_EXECUTABLE"
+    # 系統設定的授權清單與「登入項目」中顯示的圖示（Assets/Brand，由 scripts/generate-art.sh 產生）
+    [[ -n "$icon" && -f "$icon" ]] && cp "$icon" "$app/Contents/Resources/AppIcon.icns"
     cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -26,6 +28,8 @@ mtk_build_server_app() {
     <string>$MTK_SERVER_APP_NAME</string>
     <key>CFBundleExecutable</key>
     <string>$MTK_SERVER_APP_EXECUTABLE</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleInfoDictionaryVersion</key>

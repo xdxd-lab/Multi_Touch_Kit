@@ -2,18 +2,20 @@ let pageFailures = 0;
 function check(name, ok, detail) { if (!ok) pageFailures++; print(`${ok ? "OK" : "NG"}  ${name}${detail ? "：" + detail : ""}`); }
 function send(message) { sockets[0].onmessage({ data: JSON.stringify(message) }); }
 function render() { arcs = []; const callbacks = rafCallbacks; rafCallbacks = []; callbacks.forEach((cb) => cb(1000)); }
-const main = { id: 1, bounds: [0, 0, 1920, 1080] }, panel = { id: 2, bounds: [1920, 0, 1920, 1080] };
+const mainDisplay = { id: 1, bounds: [0, 0, 1920, 1080] }, panelDisplay = { id: 2, bounds: [1920, 0, 1920, 1080] };
 
 check("連線到預設網址", sockets.length === 1 && sockets[0].url === "ws://127.0.0.1:7778");
 sockets[0].onopen();
+render();
+check("狀態燈：已連線", elements.panel.dataset.connected === "true");
 // hello 時觸控螢幕尚未接上：auto 退回主螢幕
-send({ type: "hello", devices: [], display: main });
+send({ type: "hello", devices: [], display: mainDisplay });
 send({ type: "frame", touches: [{ id: 1, phase: "moved", x: 0.25, y: 0.5 }] });
 render();
 const dot = arcs.find((a) => a.r === 45);
 check("主螢幕 bounds：觸點不在這個視窗內（x < 0）", dot && dot.x < 0, dot && `x=${dot.x}`);
 // 之後觸控螢幕接上，server 送出 display
-send({ type: "display", display: panel });
+send({ type: "display", display: panelDisplay });
 render();
 const moved = arcs.find((a) => a.r === 45);
 check("display 更新後：x = 0.25 × 1920", moved && Math.abs(moved.x - 480) < 1e-9, moved && `x=${moved.x}`);
@@ -33,5 +35,6 @@ render();
 check("斷線後清除觸點（不留幽靈圓點）", !arcs.some((a) => a.r === 45));
 render();
 check("斷線狀態不會被下一幀覆蓋", hudText.startsWith("連線中斷"), hudText.split("\n")[0]);
+check("狀態燈：斷線", elements.panel.dataset.connected === "false");
 print(pageFailures === 0 ? "PAGE ALL PASS" : `${pageFailures} PAGE FAIL`);
 if (pageFailures) throw new Error(`${pageFailures} 項失敗`);
