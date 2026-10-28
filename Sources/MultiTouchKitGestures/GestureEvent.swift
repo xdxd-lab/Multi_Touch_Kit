@@ -32,7 +32,7 @@ public enum MomentumPhase: Sendable, Equatable, CustomStringConvertible {
     }
 }
 
-public enum MouseButton: Sendable, Equatable, CustomStringConvertible {
+public enum MouseButton: Sendable, Hashable, CustomStringConvertible {
     case left
     case right
 

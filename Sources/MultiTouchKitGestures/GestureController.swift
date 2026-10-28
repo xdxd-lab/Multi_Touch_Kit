@@ -27,14 +27,13 @@ public final class GestureController: @unchecked Sendable {
     public let output: GestureOutput
     /// 診斷訊息（在 `queue` 或主執行緒上呼叫）；任何執行緒皆可設定
     public var logHandler: (@Sendable (String) -> Void)? {
-        get { lock.withLock { _logHandler } }
-        set { lock.withLock { _logHandler = newValue } }
+        get { _logHandler.wrapped }
+        set { _logHandler.wrapped = newValue }
     }
 
-    private let lock = NSLock()
-    private var _displayID: CGDirectDisplayID?
-    private var _frontmostBundleID: String?
-    private var _logHandler: (@Sendable (String) -> Void)?
+    private let _displayID = Locked<CGDirectDisplayID?>(nil)
+    private let _frontmostBundleID = Locked<String?>(nil)
+    private let _logHandler = Locked<(@Sendable (String) -> Void)?>(nil)
     private var observers: [NSObjectProtocol] = []
 
     // 以下只在 queue 上存取
@@ -63,8 +62,8 @@ public final class GestureController: @unchecked Sendable {
 
     /// 觸控螢幕所在的顯示器；nil 時不送出事件（找不到顯示器）
     public var displayID: CGDirectDisplayID? {
-        get { lock.withLock { _displayID } }
-        set { lock.withLock { _displayID = newValue } }
+        get { _displayID.wrapped }
+        set { _displayID.wrapped = newValue }
     }
 
     /// 開始追蹤系統睡眠與前景 App（排除清單用）。必須在主執行緒呼叫，且主執行緒要有 run loop。
@@ -77,7 +76,7 @@ public final class GestureController: @unchecked Sendable {
             queue.async { self.cancel(reason: "系統即將睡眠") }
         })
         guard !configuration.excludedBundleIDs.isEmpty else { return }
-        lock.withLock { _frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
+        _frontmostBundleID.wrapped = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         observers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: nil) {
             [weak self] note in
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
@@ -89,7 +88,7 @@ public final class GestureController: @unchecked Sendable {
 
     /// 前景 App 改變（在 queue 上）。切到被排除的 App 時，進行中的手勢立即取消並忽略到所有手指離開。
     func frontmostChanged(to bundleID: String?) {
-        lock.withLock { _frontmostBundleID = bundleID }
+        _frontmostBundleID.wrapped = bundleID
         guard let bundleID, configuration.excludedBundleIDs.contains(bundleID), !activeTouchIDs.isEmpty, !suspendedSequence else { return }
         logHandler?("手勢：切換到排除的 App（\(bundleID)），取消進行中的手勢並放開按鍵")
         send(recognizer.reset())
@@ -100,7 +99,7 @@ public final class GestureController: @unchecked Sendable {
 
     private var frontmostIsExcluded: Bool {
         guard !configuration.excludedBundleIDs.isEmpty else { return false }
-        return lock.withLock { _frontmostBundleID.map(configuration.excludedBundleIDs.contains) ?? false }
+        return _frontmostBundleID.wrapped.map(configuration.excludedBundleIDs.contains) ?? false
     }
 
     // MARK: - 輸入（在 queue 上）

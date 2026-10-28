@@ -104,6 +104,25 @@ public struct MultiTouchDeviceInfo: Sendable, Hashable {
     public var physicalHeightMillimeters: Double?
     public var hasScanTime: Bool
     public var exclusive: Bool
+
+    /// 一般由 MultiTouchManager 建立；自行建立可用於測試或模擬（例如傳給 `DisplayLocator.resolve(_:panel:)`）
+    public init(id: Int, vendorID: Int, productID: Int, manufacturer: String, product: String, serialNumber: String,
+                locationID: Int, maxContacts: Int, slotsPerReport: Int, physicalWidthMillimeters: Double?,
+                physicalHeightMillimeters: Double?, hasScanTime: Bool, exclusive: Bool) {
+        self.id = id
+        self.vendorID = vendorID
+        self.productID = productID
+        self.manufacturer = manufacturer
+        self.product = product
+        self.serialNumber = serialNumber
+        self.locationID = locationID
+        self.maxContacts = maxContacts
+        self.slotsPerReport = slotsPerReport
+        self.physicalWidthMillimeters = physicalWidthMillimeters
+        self.physicalHeightMillimeters = physicalHeightMillimeters
+        self.hasScanTime = hasScanTime
+        self.exclusive = exclusive
+    }
 }
 
 public enum DeviceEvent: Sendable {

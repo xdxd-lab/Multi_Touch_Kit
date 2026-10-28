@@ -61,77 +61,60 @@ struct ServerOptions {
     static func parse(_ arguments: [String]) -> ServerOptions {
         var o = ServerOptions()
         var customUDP = false
-        var it = arguments.makeIterator()
-        func number(_ text: String?) -> Int? {
-            guard let text else { return nil }
-            return text.lowercased().hasPrefix("0x") ? Int(text.dropFirst(2), radix: 16) : Int(text)
+        var args = CommandLineArguments(arguments, usage: usage)
+        func target(_ option: String) -> String {
+            let text = args.value(for: option, " HOST:PORT")
+            guard UDPSender.parse(text) != nil else { args.fail("\(option) 需要 HOST:PORT（收到「\(text)」）") }
+            return text
         }
-        func fail(_ message: String) -> Never {
-            print(message)
-            print(usage)
-            exit(2)
-        }
-        while let a = it.next() {
+        while let a = args.next() {
             switch a {
             case "--udp":
-                guard let target = it.next(), UDPSender.parse(target) != nil else { fail("--udp 需要 HOST:PORT") }
+                let t = target(a)
                 if !customUDP { o.udpTargets = [] }
                 customUDP = true
-                o.udpTargets.append(target)
+                o.udpTargets.append(t)
             case "--no-udp": o.udpTargets = []; customUDP = true
             case "--ws":
-                guard let port = number(it.next()).flatMap(UInt16.init(exactly:)) else { fail("--ws 需要埠號") }
+                guard let port = UInt16(exactly: args.integer(for: a, "埠號")) else { args.fail("--ws 需要 0–65535 的埠號") }
                 o.wsPort = port
             case "--ws-lan": o.wsLAN = true
             case "--no-ws": o.wsPort = nil
-            case "--tuio":
-                guard let target = it.next(), UDPSender.parse(target) != nil else { fail("--tuio 需要 HOST:PORT") }
-                o.tuioTarget = target
+            case "--tuio": o.tuioTarget = target(a)
             case "--no-tuio": o.tuioTarget = nil
-            case "--vid": o.vendorID = number(it.next())
-            case "--pid": o.productID = number(it.next())
+            case "--vid": o.vendorID = args.integer(for: a, " Vendor ID（例：0x222A）")
+            case "--pid": o.productID = args.integer(for: a, " Product ID（例：0x0001）")
             case "--shared": o.exclusive = false
-            case "--display":
-                guard let selector = it.next().flatMap(DisplaySelector.init) else { fail("--display 格式錯誤") }
-                o.display = selector
+            case "--display": o.display = args.displaySelector()
             case "--list-displays":
                 for d in DisplayLocator.onlineDisplays() { print(d) }
                 exit(0)
             case "--simulate": o.simulate = true
             case "--simulate-pattern":
-                guard let pattern = it.next().flatMap(SimulatedTouchSource.Pattern.init(rawValue:)) else {
-                    fail("--simulate-pattern 需要 " + SimulatedTouchSource.Pattern.allCases.map(\.rawValue).joined(separator: " 或 "))
+                let text = args.value(for: a, "模式")
+                guard let pattern = SimulatedTouchSource.Pattern(rawValue: text) else {
+                    args.fail("--simulate-pattern 需要 " + SimulatedTouchSource.Pattern.allCases.map(\.rawValue).joined(separator: " 或 "))
                 }
                 o.simulate = true
                 o.simulatePattern = pattern
             case "--verbose": o.verbose = true
-            case "--stale-touch-timeout":
-                guard let v = it.next().flatMap(Double.init), v >= 0 else { fail("--stale-touch-timeout 需要 0 以上的秒數") }
-                o.staleTouchTimeout = v
+            case "--stale-touch-timeout": o.staleTouchTimeout = args.staleTouchTimeout()
             case "--gestures": o.gestures = true
             case "--gestures-dry-run": o.gestures = true; o.gesturesDryRun = true
             case "--gestures-swipe":
-                guard let mode = it.next().flatMap(SwipeMode.init(rawValue:)) else { fail("--gestures-swipe 需要 dock 或 keys") }
+                guard let mode = SwipeMode(rawValue: args.value(for: a, " dock 或 keys")) else { args.fail("--gestures-swipe 需要 dock 或 keys") }
                 o.gesturesSwipe = mode
             case "--gestures-exclude":
-                guard let list = it.next(), !list.isEmpty else { fail("--gestures-exclude 需要 bundle ID") }
+                let list = args.value(for: a, " bundle ID")
+                guard !list.isEmpty else { args.fail("--gestures-exclude 需要 bundle ID") }
                 o.gesturesExclude.formUnion(list.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
             case "--gestures-log": o.gesturesLog = true
             case "--release-buttons": o.releaseButtons = true
-            case "--gestures-rotation-gain":
-                guard let v = it.next().flatMap(Double.init), v > 0 else { fail("--gestures-rotation-gain 需要大於 0 的數字") }
-                o.gesturesRotationGain = v
-            case "--gestures-magnify-exponent":
-                guard let v = it.next().flatMap(Double.init), v > 0 else { fail("--gestures-magnify-exponent 需要大於 0 的數字") }
-                o.gesturesMagnifyExponent = v
-            case "--gestures-momentum-gain":
-                guard let v = it.next().flatMap(Double.init), v > 0 else { fail("--gestures-momentum-gain 需要大於 0 的數字") }
-                o.gesturesMomentumGain = v
-            case "--help", "-h":
-                print(usage)
-                exit(0)
+            case "--gestures-rotation-gain": o.gesturesRotationGain = args.positive(for: a, "大於 0 的數字")
+            case "--gestures-magnify-exponent": o.gesturesMagnifyExponent = args.positive(for: a, "大於 0 的數字")
+            case "--gestures-momentum-gain": o.gesturesMomentumGain = args.positive(for: a, "大於 0 的數字")
             default:
-                fail("未知選項：\(a)")
+                args.unknown(a)
             }
         }
         if !o.gestures && (o.gesturesSwipe != .keys || !o.gesturesExclude.isEmpty || o.gesturesLog
@@ -164,23 +147,22 @@ struct ServerCommand {
 /// 所有可變狀態都只在觸控來源的佇列上存取
 final class ServerRuntime: @unchecked Sendable {
     let options: ServerOptions
-    private var manager: MultiTouchManager?
-    private var simulator: SimulatedTouchSource?
-    private let queue: DispatchQueue
+    private let source: TouchSource
+    /// 實體觸控螢幕時才有（log、裝置事件）
+    private let manager: MultiTouchManager?
+    private var queue: DispatchQueue { source.queue }
     private let outputs = OutputFanout(tuioSource: "MultiTouchKit@\(ProcessInfo.processInfo.hostName)")
     private var signalSources: [DispatchSourceSignal] = []
     private var gestures: GestureController?
     /// 觸控螢幕所在的顯示器（在主執行緒解析，才拿得到名稱）
-    private let displayLock = NSLock()
-    private var _display: DisplayInfo?
-    private var display: DisplayInfo? { displayLock.withLock { _display } }
+    private let _display = Locked<DisplayInfo?>(nil)
+    private var display: DisplayInfo? { _display.wrapped }
 
     init(options: ServerOptions) {
         self.options = options
         if options.simulate {
-            let source = SimulatedTouchSource(pattern: options.simulatePattern)
-            simulator = source
-            queue = source.queue
+            source = SimulatedTouchSource(pattern: options.simulatePattern)
+            manager = nil
         } else {
             var configuration = MultiTouchManager.Configuration()
             configuration.exclusive = options.exclusive
@@ -189,13 +171,11 @@ final class ServerRuntime: @unchecked Sendable {
             if let v = options.staleTouchTimeout { configuration.staleTouchTimeout = v }
             let manager = MultiTouchManager(configuration: configuration)
             self.manager = manager
-            queue = manager.queue
+            source = manager
         }
     }
 
-    private var devices: [MultiTouchDeviceInfo] {
-        simulator != nil ? [SimulatedTouchSource.deviceInfo] : manager?.connectedDevices ?? []
-    }
+    private var devices: [MultiTouchDeviceInfo] { source.connectedDevices }
 
     func start() {
         for target in options.udpTargets {
@@ -227,22 +207,20 @@ final class ServerRuntime: @unchecked Sendable {
 
         if options.gestures { startGestures() }
 
-        if let simulator {
-            simulator.frameHandler = { [self] in handle($0) }
-            print("使用模擬觸控來源")
-            simulator.start()
-        } else if let manager {
+        source.frameHandler = { [self] in handle($0) }
+        if let manager {
             manager.logHandler = { print($0) }
-            manager.frameHandler = { [self] in handle($0) }
             manager.deviceHandler = { [self] in handle($0) }
-            do {
-                try manager.start()
-            } catch {
-                print("啟動失敗：\(error)")
-                exit(1)
-            }
-            if manager.connectedDevices.isEmpty { print("目前沒有偵測到觸控螢幕，接上後會自動開始。") }
+        } else {
+            print("使用模擬觸控來源")
         }
+        do {
+            try source.start()
+        } catch {
+            print("啟動失敗：\(error)")
+            exit(1)
+        }
+        if source.connectedDevices.isEmpty { print("目前沒有偵測到觸控螢幕，接上後會自動開始。") }
         resolveDisplay()
         CGDisplayRegisterReconfigurationCallback({ _, flags, context in
             guard !flags.contains(.beginConfigurationFlag), let context else { return }
@@ -254,17 +232,16 @@ final class ServerRuntime: @unchecked Sendable {
         // 都要先放開手勢按住的滑鼠鍵再結束，否則系統會一直認為左鍵按住（SIGKILL 無法攔截，見 --release-buttons）
         for sig in [SIGINT, SIGTERM, SIGHUP, SIGQUIT] {
             signal(sig, SIG_IGN)
-            let source = DispatchSource.makeSignalSource(signal: sig, queue: queue)
-            source.setEventHandler { [self] in
+            let signalSource = DispatchSource.makeSignalSource(signal: sig, queue: queue)
+            signalSource.setEventHandler { [self] in
                 gestures?.shutdown()
                 outputs.webSocket?.cancel()
-                manager?.stop()
-                simulator?.stop()
+                source.stop()
                 print("已停止")
                 exit(0)
             }
-            source.resume()
-            signalSources.append(source)
+            signalSource.resume()
+            signalSources.append(signalSource)
         }
     }
 
@@ -327,7 +304,7 @@ final class ServerRuntime: @unchecked Sendable {
     func resolveDisplay() {
         let match = DisplayLocator.resolve(options.display, panel: devices.first)
         let previous = display
-        displayLock.withLock { _display = match?.display }
+        _display.wrapped = match?.display
         gestures?.displayID = match?.display.id
         guard match?.display != previous || previous == nil else { return }
         if let match {

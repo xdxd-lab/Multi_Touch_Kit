@@ -204,87 +204,16 @@ public struct GestureRecognizer: Sendable {
             }
 
         case .pointer(let id, let clickCount, let last):
-            if let p = lifted[id] ?? (down[id] == nil ? last : nil) {
-                out.append(.mouseUp(.left, p, clickCount: clickCount))
-                lastClick = (time, p, clickCount)
-                state = .waitLift
-            } else if let p = down[id], p != last {
-                out.append(.mouseDragged(.left, p))
-                state = .pointer(id: id, clickCount: clickCount, last: p)
-            }
-
-        case .scroll(let ids, let last, var total, var samples, var lostSince):
-            // 一指暫時離開時用剩下的手指繼續，並接上新落下的手指（最多兩指）
-            var tracked = ids.filter { down[$0] != nil }
-            for id in downIDs where tracked.count < 2 && !tracked.contains(id) && !ids.contains(id) { tracked.append(id) }
-            if tracked.count >= 2 { lostSince = nil } else if lostSince == nil { lostSince = time }
-            let tooLong = lostSince.map { time - $0 > configuration.scrollFingerLossTolerance } ?? false
-            if tracked.isEmpty || tooLong {
-                out.append(.scroll(dx: 0, dy: 0, phase: .ended))
-                if tracked.isEmpty, let v = velocity(samples), hypot(v.dx, v.dy) >= configuration.momentumMinimumSpeed {
-                    momentum = Momentum(vx: v.dx, vy: v.dy, time: time)
-                    out.append(.momentum(dx: 0, dy: 0, phase: .began))
-                }
-                state = .waitLift
-            } else {
-                let c = centroid(tracked.map { down[$0]! })
-                // 追蹤的手指改變時重心會跳動：這個 frame 只換基準、不送位移
-                if tracked == ids && c != last {
-                    out.append(.scroll(dx: c.x - last.x, dy: c.y - last.y, phase: .changed))
-                    total.x += c.x - last.x
-                    total.y += c.y - last.y
-                }
-                samples = trimmed(samples + [Sample(time: time, point: total)], now: time)
-                state = .scroll(ids: tracked, last: c, total: total, samples: samples, lostSince: lostSince)
-            }
-
-        case .transform(let a, let b, let commitDistance, let commitAngle, let lastDistance, let lastAngle,
-                        var magnifying, var rotating):
-            guard let pa = down[a], let pb = down[b] else {
-                if magnifying { out.append(.magnify(0, phase: .ended)) }
-                if rotating { out.append(.rotate(degrees: 0, phase: .ended)) }
-                state = .waitLift
-                break
-            }
-            let d = distance(pa, pb)
-            // 指間距太小時角度不可靠：沿用上一個角度（不送旋轉）
-            let angleUsable = d >= configuration.rotationMinimumDistance
-            let angle = angleUsable ? self.angle(pa, pb) : lastAngle
-            if lastDistance > 0 {
-                let m = magnification(d / lastDistance)
-                if magnifying {
-                    if m != 0 { out.append(.magnify(m, phase: .changed)) }
-                } else if commitDistance > 0, abs(log(d / commitDistance)) >= log(configuration.secondaryMagnifyRatio) {
-                    magnifying = true
-                    out.append(.magnify(m, phase: .began))
-                }
-            }
-            let turn = -normalizedDegrees(angle - lastAngle)
-            if rotating {
-                if turn != 0 { out.append(.rotate(degrees: turn * configuration.rotationGain, phase: .changed)) }
-            } else if angleUsable,
-                      abs(normalizedDegrees(angle - commitAngle)) >= configuration.rotationThreshold * configuration.secondaryRotationFactor {
-                rotating = true
-                out.append(.rotate(degrees: turn * configuration.rotationGain, phase: .began))
-            }
-            state = .transform(a: a, b: b, commitDistance: commitDistance, commitAngle: commitAngle,
-                               lastDistance: d, lastAngle: angle, magnifying: magnifying, rotating: rotating)
-
-        case .swipe(let axis, let ids, let origin, let lastProgress, var samples):
-            let positions = ids.compactMap { down[$0] ?? lifted[$0] }
-            let c = centroid(positions)
-            samples = trimmed(samples + [Sample(time: time, point: c)], now: time)
-            let progress = swipeProgress(axis, from: origin, to: c)
-            if ids.contains(where: { down[$0] == nil }) {
-                let v = velocity(samples).map { (axis == .horizontal ? $0.dx : $0.dy) / configuration.swipeDistance } ?? 0
-                out.append(.swipe(axis, progress: progress, velocity: v, fingers: ids.count, phase: .ended))
-                state = .waitLift
-            } else {
-                if progress != lastProgress {
-                    out.append(.swipe(axis, progress: progress, velocity: 0, fingers: ids.count, phase: .changed))
-                }
-                state = .swipe(axis: axis, ids: ids, origin: origin, lastProgress: progress, samples: samples)
-            }
+            out += processPointer(id: id, clickCount: clickCount, last: last, lifted: lifted, at: time)
+        case .scroll(let ids, let last, let total, let samples, let lostSince):
+            out += processScroll(ids: ids, last: last, total: total, samples: samples, lostSince: lostSince,
+                                 downIDs: downIDs, at: time)
+        case let .transform(a, b, commitDistance, commitAngle, lastDistance, lastAngle, magnifying, rotating):
+            out += processTransform(a: a, b: b, commitDistance: commitDistance, commitAngle: commitAngle,
+                                    lastDistance: lastDistance, lastAngle: lastAngle, magnifying: magnifying, rotating: rotating)
+        case .swipe(let axis, let ids, let origin, let lastProgress, let samples):
+            out += processSwipe(axis: axis, ids: ids, origin: origin, lastProgress: lastProgress, samples: samples,
+                                lifted: lifted, at: time)
 
         case .waitLift:
             break
@@ -352,20 +281,128 @@ public struct GestureRecognizer: Sendable {
         return out
     }
 
+    // MARK: - 進行中的手勢（每個狀態一個方法，由 process 呼叫）
+
+    /// 一指拖曳：手指離開時放開左鍵，否則送出拖曳
+    private mutating func processPointer(id: UInt64, clickCount: Int, last: CGPoint, lifted: [UInt64: CGPoint],
+                                         at time: Double) -> [GestureEvent] {
+        var events: [GestureEvent] = []
+        if let p = lifted[id] ?? (down[id] == nil ? last : nil) {
+            events.append(.mouseUp(.left, p, clickCount: clickCount))
+            lastClick = (time, p, clickCount)
+            state = .waitLift
+        } else if let p = down[id], p != last {
+            events.append(.mouseDragged(.left, p))
+            state = .pointer(id: id, clickCount: clickCount, last: p)
+        }
+        return events
+    }
+
+    /// 兩指捲動：追蹤的兩指重心位移即捲動量；全部離開時依速度開始慣性
+    private mutating func processScroll(ids: [UInt64], last: CGPoint, total: CGPoint, samples: [Sample], lostSince: Double?,
+                                        downIDs: [UInt64], at time: Double) -> [GestureEvent] {
+        var total = total
+        var samples = samples
+        var lostSince = lostSince
+        var events: [GestureEvent] = []
+        // 一指暫時離開時用剩下的手指繼續，並接上新落下的手指（最多兩指）
+        var tracked = ids.filter { down[$0] != nil }
+        for id in downIDs where tracked.count < 2 && !tracked.contains(id) && !ids.contains(id) { tracked.append(id) }
+        if tracked.count >= 2 { lostSince = nil } else if lostSince == nil { lostSince = time }
+        let tooLong = lostSince.map { time - $0 > configuration.scrollFingerLossTolerance } ?? false
+        if tracked.isEmpty || tooLong {
+            events.append(.scroll(dx: 0, dy: 0, phase: .ended))
+            if tracked.isEmpty, let v = velocity(samples), hypot(v.dx, v.dy) >= configuration.momentumMinimumSpeed {
+                momentum = Momentum(vx: v.dx, vy: v.dy, time: time)
+                events.append(.momentum(dx: 0, dy: 0, phase: .began))
+            }
+            state = .waitLift
+        } else {
+            let c = centroid(tracked.map { down[$0]! })
+            // 追蹤的手指改變時重心會跳動：這個 frame 只換基準、不送位移
+            if tracked == ids && c != last {
+                events.append(.scroll(dx: c.x - last.x, dy: c.y - last.y, phase: .changed))
+                total.x += c.x - last.x
+                total.y += c.y - last.y
+            }
+            samples = trimmed(samples + [Sample(time: time, point: total)], now: time)
+            state = .scroll(ids: tracked, last: c, total: total, samples: samples, lostSince: lostSince)
+        }
+        return events
+    }
+
+    /// 兩指縮放／旋轉：以上一個 frame 的指距與角度計算增量
+    private mutating func processTransform(a: UInt64, b: UInt64, commitDistance: Double, commitAngle: Double,
+                                           lastDistance: Double, lastAngle: Double, magnifying: Bool, rotating: Bool) -> [GestureEvent] {
+        var magnifying = magnifying
+        var rotating = rotating
+        var events: [GestureEvent] = []
+        guard let pa = down[a], let pb = down[b] else {
+            if magnifying { events.append(.magnify(0, phase: .ended)) }
+            if rotating { events.append(.rotate(degrees: 0, phase: .ended)) }
+            state = .waitLift
+            return events
+        }
+        let d = distance(pa, pb)
+        // 指間距太小時角度不可靠：沿用上一個角度（不送旋轉）
+        let angleUsable = d >= configuration.rotationMinimumDistance
+        let angle = angleUsable ? self.angle(pa, pb) : lastAngle
+        if lastDistance > 0 {
+            let m = magnification(d / lastDistance)
+            if magnifying {
+                if m != 0 { events.append(.magnify(m, phase: .changed)) }
+            } else if commitDistance > 0, abs(log(d / commitDistance)) >= log(configuration.secondaryMagnifyRatio) {
+                magnifying = true
+                events.append(.magnify(m, phase: .began))
+            }
+        }
+        let turn = -normalizedDegrees(angle - lastAngle)
+        if rotating {
+            if turn != 0 { events.append(.rotate(degrees: turn * configuration.rotationGain, phase: .changed)) }
+        } else if angleUsable,
+                  abs(normalizedDegrees(angle - commitAngle)) >= configuration.rotationThreshold * configuration.secondaryRotationFactor {
+            rotating = true
+            events.append(.rotate(degrees: turn * configuration.rotationGain, phase: .began))
+        }
+        state = .transform(a: a, b: b, commitDistance: commitDistance, commitAngle: commitAngle,
+                           lastDistance: d, lastAngle: angle, magnifying: magnifying, rotating: rotating)
+        return events
+    }
+
+    /// 三指以上 swipe：任一手指離開時結束，並附上沿軸向的速度
+    private mutating func processSwipe(axis: SwipeAxis, ids: [UInt64], origin: CGPoint, lastProgress: Double, samples: [Sample],
+                                       lifted: [UInt64: CGPoint], at time: Double) -> [GestureEvent] {
+        var samples = samples
+        var events: [GestureEvent] = []
+        let positions = ids.compactMap { down[$0] ?? lifted[$0] }
+        let c = centroid(positions)
+        samples = trimmed(samples + [Sample(time: time, point: c)], now: time)
+        let progress = swipeProgress(axis, from: origin, to: c)
+        if ids.contains(where: { down[$0] == nil }) {
+            let v = velocity(samples).map { (axis == .horizontal ? $0.dx : $0.dy) / configuration.swipeDistance } ?? 0
+            events.append(.swipe(axis, progress: progress, velocity: v, fingers: ids.count, phase: .ended))
+            state = .waitLift
+        } else {
+            if progress != lastProgress {
+                events.append(.swipe(axis, progress: progress, velocity: 0, fingers: ids.count, phase: .changed))
+            }
+            state = .swipe(axis: axis, ids: ids, origin: origin, lastProgress: progress, samples: samples)
+        }
+        return events
+    }
+
     // MARK: - 決定手勢
 
     private mutating func tap(fingers: Int, duration: Double, at time: Double) -> [GestureEvent] {
         let points = order.compactMap { starts[$0] }
         guard let first = points.first else { return [] }
-        // 長按期間的慢速漂移（未達拖曳條件）仍算長按
+        // 長按：放開時才確定為右鍵（按住期間移動或加入第二指都會變成其他手勢）。
+        // 長按期間的慢速漂移（未達拖曳條件，slowDragSlop 以內）仍算長按
         if fingers == 1, duration >= configuration.longPressDuration, maxMovement <= configuration.slowDragSlop {
             return [.pointer(first), .mouseDown(.right, first, clickCount: 1), .mouseUp(.right, first, clickCount: 1)]
         }
         guard maxMovement <= configuration.tapSlop else { return [] }
         switch fingers {
-        case 1 where duration >= configuration.longPressDuration:
-            // 長按：放開時才確定為右鍵（按住期間移動或加入第二指都會變成其他手勢）
-            return [.pointer(first), .mouseDown(.right, first, clickCount: 1), .mouseUp(.right, first, clickCount: 1)]
         case 1:
             let n = clickCount(at: first, time: time)
             lastClick = (time, first, n)

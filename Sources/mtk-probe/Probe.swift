@@ -23,23 +23,16 @@ struct ProbeOptions {
 
     static func parse(_ arguments: [String]) -> ProbeOptions {
         var o = ProbeOptions()
-        var it = arguments.makeIterator()
-        while let a = it.next() {
+        var args = CommandLineArguments(arguments, usage: usage)
+        while let a = args.next() {
             switch a {
-            case "--seconds": o.seconds = Double(it.next() ?? "") ?? o.seconds
-            case "--wait": o.wait = Double(it.next() ?? "") ?? o.wait
-            case "--csv": o.csvPath = it.next()
+            case "--seconds": o.seconds = args.positive(for: a, "大於 0 的秒數")
+            case "--wait": o.wait = args.positive(for: a, "大於 0 的秒數")
+            case "--csv": o.csvPath = args.value(for: a, "檔案路徑")
             case "--shared": o.exclusive = false
             case "--simulate": o.simulate = true
-            case "--stale-touch-timeout":
-                guard let v = it.next().flatMap(Double.init), v >= 0 else {
-                    print(usage)
-                    exit(2)
-                }
-                o.staleTouchTimeout = v
-            default:
-                print(usage)
-                exit(a == "--help" || a == "-h" ? 0 : 2)
+            case "--stale-touch-timeout": o.staleTouchTimeout = args.staleTouchTimeout()
+            default: args.unknown(a)
             }
         }
         return o
@@ -59,9 +52,8 @@ struct ProbeCommand {
 /// 所有可變狀態都只在觸控來源的佇列上存取
 final class Probe: @unchecked Sendable {
     let options: ProbeOptions
-    private var manager: MultiTouchManager?
-    private var simulator: SimulatedTouchSource?
-    private var queue: DispatchQueue!
+    private var source: TouchSource!
+    private var queue: DispatchQueue { source.queue }
     private var signalSources: [DispatchSourceSignal] = []
 
     private var started = false
@@ -91,29 +83,24 @@ final class Probe: @unchecked Sendable {
 
     func run() {
         if options.simulate {
-            let source = SimulatedTouchSource()
-            queue = source.queue
-            source.frameHandler = { [self] in handle($0) }
-            simulator = source
+            source = SimulatedTouchSource()
             print("使用模擬觸控來源")
-            source.start()
         } else {
             var configuration = MultiTouchManager.Configuration()
             configuration.exclusive = options.exclusive
             if let v = options.staleTouchTimeout { configuration.staleTouchTimeout = v }
             let manager = MultiTouchManager(configuration: configuration)
-            queue = manager.queue
             manager.logHandler = { print($0) }
-            manager.frameHandler = { [self] in handle($0) }
-            do {
-                try manager.start()
-            } catch {
-                print("啟動失敗：\(error)")
-                exit(1)
-            }
-            self.manager = manager
-            if manager.connectedDevices.isEmpty { print("目前沒有偵測到觸控螢幕，接上後會自動開始。") }
+            source = manager
         }
+        source.frameHandler = { [self] in handle($0) }
+        do {
+            try source.start()
+        } catch {
+            print("啟動失敗：\(error)")
+            exit(1)
+        }
+        if source.connectedDevices.isEmpty { print("目前沒有偵測到觸控螢幕，接上後會自動開始。") }
         print("已就緒，等待第一次觸控（最多 \(Int(options.wait)) 秒）…")
         queue.asyncAfter(deadline: .now() + options.wait) { [self] in
             if !started {
@@ -123,10 +110,10 @@ final class Probe: @unchecked Sendable {
         }
         for sig in [SIGINT, SIGTERM] {
             signal(sig, SIG_IGN)
-            let source = DispatchSource.makeSignalSource(signal: sig, queue: queue)
-            source.setEventHandler { [self] in finish() }
-            source.resume()
-            signalSources.append(source)
+            let signalSource = DispatchSource.makeSignalSource(signal: sig, queue: queue)
+            signalSource.setEventHandler { [self] in finish() }
+            signalSource.resume()
+            signalSources.append(signalSource)
         }
     }
 
@@ -194,8 +181,7 @@ final class Probe: @unchecked Sendable {
         guard !finished else { return }
         finished = true
         cursorTimer?.cancel()
-        manager?.stop()
-        simulator?.stop()
+        source.stop()
         report()
         exit(0)
     }

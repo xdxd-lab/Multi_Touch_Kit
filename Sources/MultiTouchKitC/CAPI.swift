@@ -386,9 +386,9 @@ private func copyCString(_ string: String, into buffer: UnsafeMutableRawBufferPo
 }
 
 extension MTKTouchEvent: QueuedTouchEvent {
-    public var queuedTouchID: UInt64 { touch_id }
-    public var queuedPhase: TouchPhase { TouchPhase(rawValue: UInt8(truncatingIfNeeded: phase)) ?? .cancelled }
-    public func withQueuedPhase(_ phase: TouchPhase) -> MTKTouchEvent {
+    package var queuedTouchID: UInt64 { touch_id }
+    package var queuedPhase: TouchPhase { TouchPhase(rawValue: UInt8(truncatingIfNeeded: phase)) ?? .cancelled }
+    package func withQueuedPhase(_ phase: TouchPhase) -> MTKTouchEvent {
         var e = self
         e.phase = Int32(phase.rawValue)
         return e

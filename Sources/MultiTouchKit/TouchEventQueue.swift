@@ -1,7 +1,7 @@
 import Foundation
 
 /// TouchEventQueue 存放的事件（C API 的 MTKTouchEvent 等）
-public protocol QueuedTouchEvent: Sendable {
+package protocol QueuedTouchEvent: Sendable {
     var queuedTouchID: UInt64 { get }
     var queuedPhase: TouchPhase { get }
     /// 同一個觸點、改成指定階段的事件（重新同步時使用）
@@ -14,15 +14,15 @@ public protocol QueuedTouchEvent: Sendable {
 /// 觸點就永遠留在使用者的「仍在螢幕上」清單裡。所以溢位時改為：丟棄佇列內容，下次 `pop` 時先送出
 /// 重新同步：使用者以為還在、實際已離開的觸點送 cancelled；仍在螢幕上的觸點送 began（使用者還不知道的）
 /// 或 moved（目前位置），之後再接續新的事件。
-public struct TouchEventQueue<Event: QueuedTouchEvent>: Sendable {
-    public let capacity: Int
+package struct TouchEventQueue<Event: QueuedTouchEvent>: Sendable {
+    package let capacity: Int
     private var ring: [Event?]
     private var head = 0
-    private(set) public var count = 0
+    private(set) package var count = 0
     /// 溢位或重新同步時丟棄的事件總數
-    private(set) public var dropped: UInt64 = 0
+    private(set) package var dropped: UInt64 = 0
     /// 重新同步的次數
-    private(set) public var resyncs: UInt64 = 0
+    private(set) package var resyncs: UInt64 = 0
     /// 每個仍在螢幕上的觸點的最新事件（不論是否已被取出）
     private var current: [UInt64: Event] = [:]
     /// 使用者已取出 began、尚未取出 ended／cancelled 的觸點（與最後取出的事件）
@@ -31,14 +31,14 @@ public struct TouchEventQueue<Event: QueuedTouchEvent>: Sendable {
     /// 重新同步產生、尚未被取出的事件（比 ring 內的事件早）
     private var resyncEvents: [Event] = []
 
-    public init(capacity: Int) {
+    package init(capacity: Int) {
         self.capacity = max(1, capacity)
         ring = Array(repeating: nil, count: self.capacity)
     }
 
-    public var isEmpty: Bool { count == 0 && !needsResync && resyncEvents.isEmpty }
+    package var isEmpty: Bool { count == 0 && !needsResync && resyncEvents.isEmpty }
 
-    public mutating func push(_ event: Event) {
+    package mutating func push(_ event: Event) {
         if event.queuedPhase.isTerminal {
             current[event.queuedTouchID] = nil
         } else {
@@ -54,12 +54,12 @@ public struct TouchEventQueue<Event: QueuedTouchEvent>: Sendable {
     }
 
     /// 要求下次 `pop` 先重新同步（例如 Unity 重新取得焦點時對帳）
-    public mutating func requestResync() {
+    package mutating func requestResync() {
         needsResync = true
     }
 
     /// 依時間順序取出最多 `limit` 個事件
-    public mutating func pop(limit: Int) -> [Event] {
+    package mutating func pop(limit: Int) -> [Event] {
         guard limit > 0 else { return [] }
         var out: [Event] = []
         out.reserveCapacity(min(limit, count + resyncEvents.count + (needsResync ? current.count + announced.count : 0)))

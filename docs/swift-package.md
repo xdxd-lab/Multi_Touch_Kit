@@ -21,6 +21,8 @@ Xcode：File → Add Package Dependencies… → 貼上 `https://github.com/xdxd
 
 需求：macOS 13 以上、Swift 6。目前沒有版本 tag，請用 `branch: "main"`（或指定 commit）。
 
+> **API 穩定性**：1.0 之前公開 API 仍可能有原始碼不相容的改動。2026-10 起以下型別不再公開（只供套件內部使用）：`HIDReportDescriptor`、`HIDField`、`HIDCollection`、`HIDReportKind`、`HIDDescriptorError`（HID 描述元解析），以及 `TouchEventQueue`、`QueuedTouchEvent`（C API 的事件佇列，改為 `package` 層級）。
+
 ## 最小範例
 
 ```swift
@@ -132,6 +134,16 @@ let sim = SimulatedTouchSource(rate: 125)    // 一指畫圓、一指滑動、�
 sim.frameHandler = { frame in /* 與 MultiTouchManager 相同 */ }
 sim.start()
 ```
+
+`MultiTouchManager` 與 `SimulatedTouchSource` 都遵循 `TouchSource`（`queue`、`frameHandler`、`connectedDevices`、`start()`、`stop()`），程式只依賴它就能用一個旗標切換實體與模擬：
+
+```swift
+let source: TouchSource = simulate ? SimulatedTouchSource() : MultiTouchManager()
+source.frameHandler = { frame in /* … */ }
+try source.start()
+```
+
+測試時可用 `MultiTouchDeviceInfo(id:vendorID:…)` 自行建立裝置資訊（例如傳給 `DisplayLocator.resolve(_:panel:)`）。
 
 ## 其他公開工具
 
