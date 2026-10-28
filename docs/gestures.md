@@ -109,7 +109,7 @@ dry-run 的 log 不逐筆印出連續更新，而在結束時印出累計量，�
 合成事件需要「輔助使用」權限：系統設定 → 隱私權與安全性 → 輔助使用，允許**執行 mtk-server 的程序**：
 
 - 從終端機執行：允許終端機 App（Terminal、iTerm2 等）。
-- LaunchAgent：允許 `~/Library/Application Support/MultiTouchKit/mtk-server`（可用「＋」加入）。重新安裝（重新建置、ad-hoc 簽章改變）後可能需要移除再重新加入。
+- LaunchAgent：允許 `~/Library/Application Support/MultiTouchKit/mtk-server`（可用「＋」加入）。先執行一次 `scripts/create-signing-identity.sh`，之後更新時授權就不會失效；沒有建立簽章身分時，每次重新安裝都要移除再重新加入（見 [server-protocol.md 授權與簽章](server-protocol.md#授權與簽章)）。
 
 未授權時 mtk-server 會跳出系統詢問並在 log 提示，系統會靜默丟棄合成的事件。授權後請重新啟動 mtk-server。讀取觸控本身另需「輸入監控」權限（見 README）。
 

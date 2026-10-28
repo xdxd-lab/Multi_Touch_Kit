@@ -77,7 +77,7 @@ swift build -c release
 | `Sources/mtk-viewer` | 觸點視覺化視窗 |
 | `Unity/com.xdxd-lab.multitouchkit` | Unity 套件（含 universal `MultiTouchKit.bundle`） |
 | `Examples/` | C、Python（ctypes／UDP／WebSocket／TUIO）、網頁範例 |
-| `scripts/` | 測試、建置 Unity 外掛、C 範例、LaunchAgent 安裝／移除 |
+| `scripts/` | 測試、建置 Unity 外掛、C 範例、LaunchAgent 安裝／移除、固定簽章身分 |
 | `Tests/` | 單元測試（以實機擷取的報告為 fixture，不需硬體）；`Tests/UnityOffline` 為 Unity C# 的離線測試 |
 
 ## 開發

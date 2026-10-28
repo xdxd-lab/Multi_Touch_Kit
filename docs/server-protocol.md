@@ -36,11 +36,31 @@ swift build -c release --product mtk-server
 ### 登入後自動執行（LaunchAgent）
 
 ```sh
+scripts/create-signing-identity.sh                   # 第一次：建立固定的簽章身分（只需一次，見下方）
 scripts/install-server-agent.sh [mtk-server 選項…]   # 例：scripts/install-server-agent.sh --no-tuio --display edid:6474:aa15
 scripts/uninstall-server-agent.sh
 ```
 
-安裝到 `~/Library/Application Support/MultiTouchKit/mtk-server`，LaunchAgent 標籤 `com.xdxd-lab.multitouchkit.server`，當機自動重啟，紀錄檔 `~/Library/Logs/mtk-server.log`。常駐時 mtk-server 會獨占觸控螢幕，Unity 等程式請改用 UDP 傳輸。由 launchd 啟動的 mtk-server 需要自己的「輸入監控」權限（每次重新安裝、簽章改變後可能需重新授權）。
+安裝到 `~/Library/Application Support/MultiTouchKit/mtk-server`，LaunchAgent 標籤 `com.xdxd-lab.multitouchkit.server`，當機自動重啟，紀錄檔 `~/Library/Logs/mtk-server.log`。常駐時 mtk-server 會獨占觸控螢幕，Unity 等程式請改用 UDP 傳輸。
+
+#### 授權與簽章
+
+由 launchd 啟動的 mtk-server 需要自己的「輸入監控」權限（使用 `--gestures` 時另需「輔助使用」）：系統設定 → 隱私權與安全性，加入 `~/Library/Application Support/MultiTouchKit/mtk-server`。
+
+macOS 記錄授權時看的是程式的簽章身分（designated requirement），不是路徑：
+
+| 簽章 | 簽章身分 | 更新（重新建置後安裝）時 |
+|---|---|---|
+| ad-hoc（沒有建立簽章身分時） | 內容的雜湊，每次建置都不同 | **每次都要重新授權** |
+| 本機自簽憑證「MultiTouchKit Local Signing」 | identifier `com.xdxd-lab.multitouchkit.server`＋憑證，固定 | 授權持續有效 |
+
+1. 執行一次 `scripts/create-signing-identity.sh`：在 login keychain 建立 10 年期的自簽程式碼簽章憑證，並允許 codesign 使用它的私鑰（會詢問一次登入密碼；略過時第一次簽章會跳出詢問，按「永遠允許」）。憑證不需要設為信任，只用於本機，Gatekeeper 不接受（本機建置、由 launchd 啟動的程式不經過 Gatekeeper）。
+2. 執行 `scripts/install-server-agent.sh`，它會自動使用這個身分，並印出「簽章身分沒有改變，授權仍有效」或「需要重新授權」。從 ad-hoc 改為固定身分的那一次需要最後再授權一次（移除舊的 mtk-server 項目再加入）。
+3. 之後的更新都不必再授權。
+
+- 已有 Apple Development／Developer ID 憑證時，可用 `MTK_SIGN_IDENTITY="憑證名稱" scripts/install-server-agent.sh …` 改用它。
+- 移除：`scripts/create-signing-identity.sh --remove`（之後安裝回到 ad-hoc）。
+- 安全性：能讀取你 login keychain 的人可以用這個憑證簽出相同身分的程式，並沿用這兩項授權；這等同已經能控制你的帳號。不再需要時請移除。
 
 ## 共通
 
