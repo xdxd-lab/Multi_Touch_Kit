@@ -1,4 +1,5 @@
 // C API 實作（宣告見 Sources/CMultiTouchKit/include/multitouchkit.h）。
+// 各函式的行為、執行緒與擁有權說明以 header 為唯一來源，這裡不重複；改動行為時請一併更新 header 與 docs/c-api.md。
 // 建置成 libMultiTouchKitC.dylib；Unity 外掛由 scripts/build-unity-plugin.sh 包成 MultiTouchKit.bundle。
 import AppKit
 import CMultiTouchKit
@@ -208,6 +209,8 @@ public func mtkStart(_ config: UnsafePointer<MTKConfig>?) -> Int32 {
     var resolved = MTKConfig()
     mtkDefaultConfig(&resolved)
     if let config {
+        // struct_size 讓結構可以在尾端新增欄位：比本版本小代表呼叫端的結構缺少欄位（讀取會越界）而拒絕；
+        // 比本版本大代表呼叫端比程式庫新，只讀取本版本知道的部分
         guard config.pointee.struct_size >= Int32(MemoryLayout<MTKConfig>.size) else { return MTK_ERR_INVALID_ARGUMENT }
         resolved = config.pointee
     }

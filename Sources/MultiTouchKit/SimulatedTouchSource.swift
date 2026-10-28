@@ -7,6 +7,7 @@ import Foundation
 /// - `.gestures`：每 12 秒依序做出點擊、雙擊、長按、兩指點擊、兩指甩動捲動、捏合、旋轉、三指左滑、四指上滑、一指拖曳，
 ///   用來驗證手勢辨識（mtk-server --simulate-pattern gestures）。
 public final class SimulatedTouchSource: @unchecked Sendable {
+    /// 模擬來源的 `TouchFrame.deviceID`（實體裝置從 1 開始，不會衝突）
     public static let deviceID = 0
 
     /// rawValue 即 mtk-server --simulate-pattern 的值
@@ -15,8 +16,11 @@ public final class SimulatedTouchSource: @unchecked Sendable {
         case gestures
     }
 
+    /// 每秒產生的 frame 數（預設 125，與 ILITEK 相同）
     public let rate: Double
+    /// 模擬的動作
     public let pattern: Pattern
+    /// `frameHandler` 執行的序列佇列
     public let queue: DispatchQueue
     /// 在 `queue` 上呼叫；任何執行緒皆可設定
     public var frameHandler: (@Sendable (TouchFrame) -> Void)? {
@@ -33,6 +37,10 @@ public final class SimulatedTouchSource: @unchecked Sendable {
     private var startTime: UInt64 = 0
     private let queueKey = DispatchSpecificKey<UInt8>()
 
+    /// - Parameters:
+    ///   - rate: 每秒 frame 數
+    ///   - pattern: 模擬的動作
+    ///   - queue: `frameHandler` 執行的序列佇列；預設建立新的 userInteractive 佇列
     public init(rate: Double = 125, pattern: Pattern = .drums,
                 queue: DispatchQueue = DispatchQueue(label: "MultiTouchKit.simulated", qos: .userInteractive)) {
         self.rate = rate
@@ -53,6 +61,7 @@ public final class SimulatedTouchSource: @unchecked Sendable {
                              physicalHeightMillimeters: 173.9, hasScanTime: false, exclusive: false)
     }
 
+    /// 開始產生 frame（已在執行時不做任何事）；任何執行緒皆可呼叫
     public func start() {
         onQueue {
             guard timer == nil else { return }
@@ -65,6 +74,7 @@ public final class SimulatedTouchSource: @unchecked Sendable {
         }
     }
 
+    /// 停止；仍在「螢幕上」的模擬觸點以 cancelled 送出
     public func stop() {
         onQueue {
             timer?.cancel()

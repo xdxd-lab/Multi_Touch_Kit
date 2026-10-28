@@ -21,6 +21,11 @@ namespace MultiTouchKit
         /// <summary>原生佇列溢位時丟棄的過時事件總數（溢位後會自動重新同步，觸點狀態不會遺失）。</summary>
         public ulong DroppedEventCount => m_Started ? MultiTouchKitNative.mtk_dropped_event_count() : 0;
 
+        /// <param name="exclusive">獨占觸控螢幕（系統游標不再跟著觸控移動）</param>
+        /// <param name="vendorId">只使用指定 Vendor ID 的裝置；0 = 不限</param>
+        /// <param name="productId">只使用指定 Product ID 的裝置；0 = 不限</param>
+        /// <param name="reportStationary">也送出 Stationary 事件</param>
+        /// <param name="log">把原生診斷訊息印到 Console</param>
         /// <param name="staleTouchTimeout">觸點幾乎不動超過此秒數就視為誤觸並取消（線材等幽靈觸點）；0 = 關閉</param>
         public NativeTransport(bool exclusive = true, int vendorId = 0, int productId = 0,
                                bool reportStationary = false, bool log = true, float staleTouchTimeout = 30f)
@@ -33,8 +38,10 @@ namespace MultiTouchKit
             m_Log = log;
         }
 
+        /// <inheritdoc/>
         public string Name => "Native";
 
+        /// <inheritdoc/>
         public bool Start()
         {
             if (!MultiTouchKitNative.IsAvailable)
@@ -61,6 +68,7 @@ namespace MultiTouchKit
             return true;
         }
 
+        /// <inheritdoc/>
         public void Poll(List<MultiTouchTouch> output)
         {
             if (!m_Started) return;
@@ -100,6 +108,7 @@ namespace MultiTouchKit
             if (m_Started) MultiTouchKitNative.mtk_request_resync();
         }
 
+        /// <summary>停止接收並釋放資源；可重複呼叫。</summary>
         public void Dispose()
         {
             if (!m_Started) return;

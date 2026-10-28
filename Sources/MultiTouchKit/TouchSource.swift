@@ -18,5 +18,6 @@ public protocol TouchSource: AnyObject, Sendable {
 extension MultiTouchManager: TouchSource {}
 
 extension SimulatedTouchSource: TouchSource {
+    /// 一律為 `[SimulatedTouchSource.deviceInfo]`
     public var connectedDevices: [MultiTouchDeviceInfo] { [Self.deviceInfo] }
 }

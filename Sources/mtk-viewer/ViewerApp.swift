@@ -10,6 +10,7 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
     private var touchView: TouchView!
     private var source: TouchSource?
+    private var signalSources: [DispatchSourceSignal] = []
     private var mapping = ScreenMapping()
     private var statusMessage = ""
 
@@ -34,6 +35,7 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
     """
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        handleTerminationSignals()
         var selector = DisplaySelector.environment ?? .automatic
         var simulate = false
         var configuration = MultiTouchManager.Configuration()
@@ -110,6 +112,21 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         // 模擬來源在視窗建立後才開始，第一個 frame 才不會在沒有視窗時被丟掉
         if simulate { try? source.start() }
+    }
+
+    /// SIGINT（Ctrl-C）、SIGTERM、SIGHUP 都走 NSApp.terminate，讓 applicationWillTerminate 停止觸控來源並印出摘要。
+    /// 先設為 SIG_IGN 再用 DispatchSource 接收：系統預設動作會直接結束程序、跳過收尾；而在 shell 腳本中以 `&`
+    /// 背景啟動時 SIGINT 會被繼承為「忽略」，不自己處理的話 Ctrl-C／kill -INT 完全沒有作用。
+    private func handleTerminationSignals() {
+        for sig in [SIGINT, SIGTERM, SIGHUP] {
+            signal(sig, SIG_IGN)
+            let signalSource = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+            signalSource.setEventHandler {
+                MainActor.assumeIsolated { NSApp.terminate(nil) }
+            }
+            signalSource.resume()
+            signalSources.append(signalSource)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

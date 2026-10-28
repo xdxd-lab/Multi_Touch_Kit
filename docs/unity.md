@@ -2,7 +2,11 @@
 
 套件 `com.xdxd-lab.multitouchkit`（`Unity/com.xdxd-lab.multitouchkit`）：C# 包裝、Native／UDP 兩種傳輸、Input System 虛擬觸控螢幕、範例場景。目標 Unity 2022.3 LTS 以上，macOS 編輯器與 macOS 執行檔（Apple Silicon 與 Intel）。
 
-> 狀態：程式碼與 universal bundle 已完成，bundle 已以 Python ctypes 在 arm64／x86_64 驗證可載入並開啟觸控螢幕；**尚未在 Unity 內實際驗證**（開發機尚未安裝 Unity）。
+> 狀態（2026-10）：
+> - **已在 Unity 6000.3.27f1 實機驗證**（MF156LR、Native 傳輸、Touch Visualizer、編輯器內 Play Maximized）：10 點正常；失焦時不凍結也不殘留觸點；滑鼠線誤觸不再產生持續觸點；單指長按不會被誤取消（紀錄見 [hardware/mf156lr-summary.md](hardware/mf156lr-summary.md)）。
+> - 已知：編輯器 Game 視窗不是全螢幕時，水平位置與手指略有偏差；待以獨立 App 全螢幕驗證。
+> - 程式碼審查（[reviews/2026-10-code-review.md](reviews/2026-10-code-review.md)）後的修正，包括換場景時重複的 Manager、Udp 逾時與對帳、零 GC、`GetActiveTouches`，都以 `scripts/test-unity-offline.sh` 離線驗證，**待在 Unity 內實機確認**。
+> - bundle 已以 Python ctypes 在 arm64／x86_64 驗證可載入並開啟觸控螢幕。
 
 ## 安裝
 

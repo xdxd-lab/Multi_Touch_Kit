@@ -3,8 +3,11 @@ import IOKit
 import IOKit.hid
 import IOKit.pwr_mgt
 
+/// `MultiTouchManager.start()` 的錯誤（IOKit 無法建立裝置通知；正常的 macOS 上不會發生）
 public enum MultiTouchError: Error, Sendable {
+    /// IONotificationPortCreate 失敗
     case notificationPortUnavailable
+    /// IOServiceAddMatchingNotification 失敗（附 kern_return_t）
     case matchingFailed(kern_return_t)
 }
 
@@ -13,9 +16,11 @@ public enum MultiTouchError: Error, Sendable {
 /// 所有 handler 都在 `queue`（userInteractive 的序列佇列）上呼叫；請在 handler 中盡快返回，
 /// 需要更新 UI 時再自行切換到主執行緒。
 public final class MultiTouchManager: @unchecked Sendable {
+    /// 建立 manager 時的設定；manager 建立後不能修改（要改請 stop 後以新設定建立新的 manager）
     public struct Configuration: Sendable {
         /// 只接受指定的 Vendor ID／Product ID；nil 代表不限（所有 HID 觸控螢幕）
         public var vendorID: Int?
+        /// 見 `vendorID`
         public var productID: Int?
         /// 獨占裝置：系統不再把觸控當成單點滑鼠。同一時間只有一個程式能獨占。
         public var exclusive = true
@@ -34,9 +39,11 @@ public final class MultiTouchManager: @unchecked Sendable {
         /// 有觸點時超過這麼久（秒）沒有任何報告就全部取消（USB 異常）；控制器按住時以 125 Hz 回報。0 = 關閉
         public var reportTimeout: Double = 0.5
 
+        /// 預設值：所有 HID 觸控螢幕、獨占、初始化多點模式、一併獨占滑鼠相容介面
         public init() {}
     }
 
+    /// 建立時的設定
     public let configuration: Configuration
     /// HID 事件與所有 handler 執行的佇列
     public let queue: DispatchQueue
@@ -59,6 +66,7 @@ public final class MultiTouchManager: @unchecked Sendable {
     private var nextTouchID: UInt64 = 1
     private var exclusiveWarningShown: Set<UInt64> = []
 
+    /// 建立後呼叫 `start()` 才會開始偵測
     public init(configuration: Configuration = .init()) {
         self.configuration = configuration
         queue = DispatchQueue(label: "MultiTouchKit.hid", qos: .userInteractive)
@@ -97,8 +105,12 @@ public final class MultiTouchManager: @unchecked Sendable {
     /// 目前已開啟的裝置（任何執行緒皆可讀取）
     public var connectedDevices: [MultiTouchDeviceInfo] { published.wrapped.devices }
 
+    /// `start()` 之後、`stop()` 之前為 true；不代表已有裝置（見 `connectedDevices`）
     public var isRunning: Bool { published.wrapped.isRunning }
 
+    /// 開始偵測觸控螢幕（包含之後才接上的）並讀取觸控。已在執行時不做任何事；沒有觸控螢幕時也會成功，接上後自動開始。
+    /// 可從任何執行緒呼叫，包含 handler 內（在 `queue` 上同步執行）。
+    /// - Throws: `MultiTouchError`（IOKit 無法建立裝置通知）
     public func start() throws {
         try onQueue {
             guard notifyPort == nil else { return }

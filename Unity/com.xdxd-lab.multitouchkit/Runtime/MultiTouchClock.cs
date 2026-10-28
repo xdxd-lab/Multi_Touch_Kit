@@ -30,13 +30,16 @@ namespace MultiTouchKit
                 ? MultiTouchKitNative.mtk_now_ns()
                 : (ulong)(Stopwatch.GetTimestamp() * s_StopwatchToNs);
 
+        /// <summary>原生時間（奈秒）→ Time.realtimeSinceStartupAsDouble。</summary>
         public static double ToRealtime(ulong ns) => ns / 1e9 + s_RealtimeOffset;
 
+        /// <summary>原生時間（奈秒）→ AudioSettings.dspTime（需要 <see cref="HasDspMapping"/>）。</summary>
         public static double ToDspTime(ulong ns) => ns / 1e9 + s_DspOffset;
 
         /// <summary>dspTime → 原生時間（奈秒），可用來把譜面時間換算成觸控時基。</summary>
         public static ulong DspTimeToNs(double dspTime) => (ulong)System.Math.Max(0, (dspTime - s_DspOffset) * 1e9);
 
+        /// <summary>更新換算用的對應關係（Manager 每幀呼叫；自行使用時請在主執行緒每幀呼叫）。</summary>
         public static void Sample()
         {
             double now = NowNs / 1e9;

@@ -59,6 +59,7 @@ enum OSC {
 /// 整個 bundle 直接寫進同一個位元組緩衝區（每則訊息的長度先留位置、寫完再回填），
 /// 不為每則 OSC 訊息各自配置 Data；輸出與 `OSC.message`／`OSC.bundle` 組出的結果逐位元組相同。
 public struct TUIOEncoder: Sendable {
+    /// TUIO 1.1 `source` 訊息的內容，建議為「程式名稱@主機名稱」（接收端用來區分多個來源）
     public var source: String {
         didSet { sourceMessage = Self.makeSourceMessage(source) }
     }
@@ -68,6 +69,7 @@ public struct TUIOEncoder: Sendable {
     private var sourceMessage: [UInt8]
     private var buffer: [UInt8] = []
 
+    /// - Parameter source: 見 `source`
     public init(source: String) {
         self.source = source
         sourceMessage = Self.makeSourceMessage(source)

@@ -1,10 +1,13 @@
 import Foundation
 
 /// mtk-server 在 UDP 與 WebSocket 上使用的 JSON 訊息格式（見 docs/server-protocol.md）。
-/// 刻意手動組字串：格式固定、欄位順序穩定、每個 frame 不需配置 JSONEncoder。
+/// 刻意不用 JSONEncoder：格式固定、欄位順序穩定。每 frame 的 frame 訊息直接寫入位元組（`frameBytes`），
+/// 輸出由 GoldenOutputTests 保證與原本以 `String(format:)` 組字串的版本逐位元組相同。
 public enum TouchJSON {
+    /// 每則訊息的 `v` 欄位；只在格式不相容地改變時遞增（新增欄位不算）
     public static let protocolVersion = 1
 
+    /// `type: frame` 訊息：一個 TouchFrame 的所有觸點
     public static func frame(_ frame: TouchFrame) -> String {
         var bytes: [UInt8] = []
         frameBytes(frame, into: &bytes)
@@ -65,10 +68,12 @@ public enum TouchJSON {
         bytes = w.bytes
     }
 
+    /// `type: device` 訊息；`event` 為 added／removed／reinitialized
     public static func device(_ info: MultiTouchDeviceInfo, event: String) -> String {
         "{\"type\":\"device\",\"v\":\(protocolVersion),\"event\":\"\(escape(event))\",\"device\":\(deviceObject(info))}"
     }
 
+    /// WebSocket 用戶端連線時送出的 `type: hello` 訊息：伺服器版本、目前的裝置與觸控螢幕所在的顯示器
     public static func hello(server: String, devices: [MultiTouchDeviceInfo], display: DisplayInfo? = nil) -> String {
         var s = "{\"type\":\"hello\",\"v\":\(protocolVersion),\"server\":\"\(escape(server))\",\"version\":\"\(MultiTouchKitVersion.string)\",\"devices\":["
             + devices.map(deviceObject).joined(separator: ",") + "]"
@@ -85,6 +90,7 @@ public enum TouchJSON {
         return s + ",\"pixels\":[\(d.pixelWidth),\(d.pixelHeight)],\"hz\":" + String(format: "%.0f", d.refreshRate) + "}"
     }
 
+    /// 裝置資訊物件（hello 與 device 訊息共用）
     public static func deviceObject(_ d: MultiTouchDeviceInfo) -> String {
         var s = "{\"id\":\(d.id),\"vendorId\":\(d.vendorID),\"productId\":\(d.productID)"
         s += ",\"manufacturer\":\"\(escape(d.manufacturer))\",\"product\":\"\(escape(d.product))\""

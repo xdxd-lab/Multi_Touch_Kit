@@ -3,28 +3,39 @@ import CoreGraphics
 
 /// 一台已連線的顯示器
 public struct DisplayInfo: Sendable, Hashable, CustomStringConvertible {
+    /// CGDirectDisplayID；顯示器重新接線後可能改變，長期保存請用 uuid 或 edid
     public var id: CGDirectDisplayID
     /// 系統顯示的名稱（例如「Sculptor (1)」）。同名顯示器的編號由 macOS 指定、不保證固定；
     /// 只有在主執行緒取得清單時才有值。
     public var name: String?
-    /// EDID 的廠商／型號／序號（CGDisplayVendorNumber 等）
+    /// EDID 廠商編號（CGDisplayVendorNumber）
     public var vendor: UInt32
+    /// EDID 型號（CGDisplayModelNumber）
     public var model: UInt32
+    /// EDID 序號（CGDisplaySerialNumber；面板沒有提供時為 0）
     public var serial: UInt32
     /// 由 EDID 推導、重開機後仍相同的識別碼
     public var uuid: String
+    /// 主螢幕（選單列所在，也是全域座標的原點）
     public var isMain: Bool
+    /// 內建螢幕（例如 MacBook 的面板）
     public var isBuiltin: Bool
     /// 全域 Quartz 座標（點，原點在主螢幕左上）
     public var bounds: CGRect
+    /// 目前顯示模式的實際像素寬度（Retina 時大於 bounds 的點數）
     public var pixelWidth: Int
+    /// 目前顯示模式的實際像素高度
     public var pixelHeight: Int
+    /// 更新率（Hz）；可變更新率或無法取得時為 0
     public var refreshRate: Double
-    /// EDID 宣告的實體尺寸（mm）；未知時為 0
+    /// EDID 宣告的實體寬度（mm，CGDisplayScreenSize）；未知時為 0
     public var widthMillimeters: Double
+    /// EDID 宣告的實體高度（mm）；未知時為 0
     public var heightMillimeters: Double
+    /// 「顯示器」設定中的旋轉角度（0、90、180、270）
     public var rotation: Double
 
+    /// `edid:` 條件使用的文字：廠商:型號（16 進位）:序號（10 進位），例如 6474:aa15:0
     public var edid: String { String(format: "%04x:%04x:%u", vendor, model, serial) }
 
     public var description: String {
@@ -47,6 +58,7 @@ public struct DisplayInfo: Sendable, Hashable, CustomStringConvertible {
 ///
 /// 例：兩台同名「Sculptor」時用 `name:Sculptor,size:1920x1080` 或 `edid:6474:aa15` 區分。
 public struct DisplaySelector: Sendable, Hashable, CustomStringConvertible {
+    /// 單一條件；文字格式見型別說明
     public enum Criterion: Sendable, Hashable {
         case automatic
         case main
@@ -58,12 +70,17 @@ public struct DisplaySelector: Sendable, Hashable, CustomStringConvertible {
         case refreshRate(Double)
     }
 
+    /// 全部符合才算（AND）
     public var criteria: [Criterion]
+    /// 建立時的原始文字（顯示與 log 用）
     public let text: String
 
+    /// 依觸控面板實體尺寸自動挑選（預設）
     public static let automatic = DisplaySelector(criteria: [.automatic], text: "auto")
+    /// 主螢幕
     public static let main = DisplaySelector(criteria: [.main], text: "main")
 
+    /// 以程式組合條件；`text` 只用於顯示
     public init(criteria: [Criterion], text: String) {
         self.criteria = criteria
         self.text = text
@@ -146,7 +163,9 @@ public struct DisplaySelector: Sendable, Hashable, CustomStringConvertible {
 
 /// 列出顯示器並依 DisplaySelector 找出觸控螢幕所在的那一台
 public enum DisplayLocator {
+    /// `resolve` 的結果
     public struct Match: Sendable {
+        /// 選到的顯示器
         public var display: DisplayInfo
         /// 給人看的選擇理由（例如「實體尺寸最接近」「符合多台，取第一台非主螢幕」）
         public var note: String
@@ -201,7 +220,13 @@ public enum DisplayLocator {
         return Match(display: ordered[0], note: "符合 \(selector) 的顯示器有 \(candidates.count) 台，取第一台非主螢幕；請加上更多條件")
     }
 
-    /// 長邊與短邊分別比對（不受旋轉影響），兩邊都要在 ±30% 內
+    /// 長邊與短邊分別比對（不受旋轉影響），兩邊都要在 ±30% 內，取誤差總和最小的一台。
+    ///
+    /// - 比較 log 比例而不是差值：放大與縮小對稱，長短邊的誤差可以直接相加，與螢幕大小無關。
+    /// - 容許 30%：觸控面板的 Physical 範圍只涵蓋可觸控區域，EDID 則是整個面板（常以公分捨入，部分顯示器填錯）。
+    ///   MF156LR 觸控 309×174 mm、EDID 351×200 mm，相差約 14%。
+    /// - 限制：尺寸相近的顯示器（例如 14 吋內建螢幕約 302×196 mm）也可能落在 30% 內，此時只取誤差最小的一台；
+    ///   需要確定時請用 `edid:` 明確指定。
     static func closestBySize(_ displays: [DisplayInfo], panelWidth: Double, panelHeight: Double) -> DisplayInfo? {
         let panelLong = max(panelWidth, panelHeight)
         let panelShort = min(panelWidth, panelHeight)

@@ -43,6 +43,8 @@ struct ContactTracker: Sendable {
                 if var t = active[c.contactID] {
                     t.phase = (t.rawX != c.rawX || t.rawY != c.rawY) ? .moved : .stationary
                     t.apply(c)
+                    // 錨點只在「明顯移動」（超出 tolerance）時才更新，而不是每個 frame 都更新：
+                    // 否則以極慢速度漂移的幽靈觸點每次都會重設計時，永遠不會被判定為不動
                     if checkStale, let a = anchors[c.contactID] {
                         if abs(c.x - a.x) > stalePolicy.tolerance || abs(c.y - a.y) > stalePolicy.tolerance {
                             anchors[c.contactID] = (c.x, c.y, time)

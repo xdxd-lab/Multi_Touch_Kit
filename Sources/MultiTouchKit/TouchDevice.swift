@@ -88,6 +88,12 @@ final class TouchDevice: @unchecked Sendable {
         return result
     }
 
+    /// 開始接收報告。
+    ///
+    /// 擁有權：IOKit 的回呼只拿到裸指標，所以這裡以 `passRetained` 讓 IOHIDDevice「持有」self 一次，
+    /// 回呼期間 self 不會被釋放（manager 可能已經從 devices 移除它）。這個參照只在 cancel handler 中
+    /// 以 `takeRetainedValue` 釋放：IOKit 保證 cancel handler 是最後一個回呼，之後不會再有報告寫進
+    /// `reportBuffer`，所以 deinit 才釋放 buffer 是安全的。只呼叫 `IOHIDDeviceClose` 而不 cancel 會洩漏 self。
     func activate() {
         IOHIDDeviceSetDispatchQueue(hidDevice, queue)
         let context = Unmanaged.passRetained(self).toOpaque()
@@ -270,6 +276,7 @@ final class TouchDevice: @unchecked Sendable {
         let entry = Sibling(device: device, size: max(sibling.maxInputReportSize, 1), pointerReportIDs: pointerIDs, owner: self)
         siblings[sibling.registryID] = entry
         IOHIDDeviceSetDispatchQueue(device, queue)
+        // 與 activate() 相同的擁有權規則：cancel handler 釋放這個參照
         let context = Unmanaged.passRetained(entry).toOpaque()
         IOHIDDeviceRegisterInputReportCallback(device, entry.buffer, entry.size, { context, result, _, _, reportID, _, _ in
             guard result == kIOReturnSuccess, let context else { return }
