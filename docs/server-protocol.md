@@ -41,11 +41,17 @@ scripts/install-server-agent.sh [mtk-server 選項…]   # 例：scripts/install
 scripts/uninstall-server-agent.sh
 ```
 
-安裝到 `~/Library/Application Support/MultiTouchKit/mtk-server`，LaunchAgent 標籤 `com.xdxd-lab.multitouchkit.server`，當機自動重啟，紀錄檔 `~/Library/Logs/mtk-server.log`。常駐時 mtk-server 會獨占觸控螢幕，Unity 等程式請改用 UDP 傳輸。
+安裝為 `~/Library/Application Support/MultiTouchKit/MultiTouchKit Server.app`（bundle ID 與 LaunchAgent 標籤都是 `com.xdxd-lab.multitouchkit.server`，沒有 Dock 圖示），LaunchAgent 執行其中的 `Contents/MacOS/mtk-server`，當機自動重啟，紀錄檔 `~/Library/Logs/mtk-server.log`。常駐時 mtk-server 會獨占觸控螢幕，Unity 等程式請改用 UDP 傳輸。舊版安裝的純執行檔 `…/MultiTouchKit/mtk-server` 會在安裝時自動移除。
 
 #### 授權與簽章
 
-由 launchd 啟動的 mtk-server 需要自己的「輸入監控」權限（使用 `--gestures` 時另需「輔助使用」）：系統設定 → 隱私權與安全性，加入 `~/Library/Application Support/MultiTouchKit/mtk-server`。
+由 launchd 啟動的 mtk-server 需要自己的「輸入監控」權限（使用 `--gestures` 時另需「輔助使用」）。啟動時 mtk-server 會主動請求，
+系統會把 **MultiTouchKit Server** 加入 系統設定 → 隱私權與安全性 的這兩個清單並跳出詢問：**在清單中打開它的開關即可**，
+打開後自動生效（mtk-server 每 2 秒檢查一次，取得「輸入監控」後自動重新開啟觸控螢幕），不必重新啟動。
+清單中沒有出現時，可用「＋」選取 `~/Library/Application Support/MultiTouchKit/MultiTouchKit Server.app`（在選檔視窗按 ⌘⇧G 輸入路徑）。
+紀錄檔中的「授權：」開頭訊息會說明目前缺少哪一項。
+
+從終端機執行 mtk-server 時，授權的對象是終端機 App（Terminal、iTerm2 等），不是 MultiTouchKit Server。
 
 macOS 記錄授權時看的是程式的簽章身分（designated requirement），不是路徑：
 
@@ -55,7 +61,7 @@ macOS 記錄授權時看的是程式的簽章身分（designated requirement）�
 | 本機自簽憑證「MultiTouchKit Local Signing」 | identifier `com.xdxd-lab.multitouchkit.server`＋憑證，固定 | 授權持續有效 |
 
 1. 執行一次 `scripts/create-signing-identity.sh`：在 login keychain 建立 10 年期的自簽程式碼簽章憑證，並允許 codesign 使用它的私鑰（會詢問一次登入密碼；略過時第一次簽章會跳出詢問，按「永遠允許」）。憑證不需要設為信任，只用於本機，Gatekeeper 不接受（本機建置、由 launchd 啟動的程式不經過 Gatekeeper）。
-2. 執行 `scripts/install-server-agent.sh`，它會自動使用這個身分，並印出「簽章身分沒有改變，授權仍有效」或「需要重新授權」。從 ad-hoc 改為固定身分的那一次需要最後再授權一次（移除舊的 mtk-server 項目再加入）。
+2. 執行 `scripts/install-server-agent.sh`，它會自動使用這個身分，並印出「簽章身分沒有改變，授權仍有效」或「需要重新授權」。第一次安裝（或從 ad-hoc 改為固定身分）時，在清單中打開 MultiTouchKit Server 的開關。
 3. 之後的更新都不必再授權。
 
 - 已有 Apple Development／Developer ID 憑證時，可用 `MTK_SIGN_IDENTITY="憑證名稱" scripts/install-server-agent.sh …` 改用它。

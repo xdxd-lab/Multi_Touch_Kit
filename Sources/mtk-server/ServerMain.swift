@@ -154,6 +154,9 @@ final class ServerRuntime: @unchecked Sendable {
     private let outputs = OutputFanout(tuioSource: "MultiTouchKit@\(ProcessInfo.processInfo.hostName)")
     private var signalSources: [DispatchSourceSignal] = []
     private var gestures: GestureController?
+    /// 送出系統事件的手勢（不是 dry-run）需要「輔助使用」
+    private var gesturesNeedAccessibility = false
+    private var permissionWatcher: PermissionWatcher?
     /// 觸控螢幕所在的顯示器（在主執行緒解析，才拿得到名稱）
     private let _display = Locked<DisplayInfo?>(nil)
     private var display: DisplayInfo? { _display.wrapped }
@@ -211,6 +214,15 @@ final class ServerRuntime: @unchecked Sendable {
         if let manager {
             manager.logHandler = { print($0) }
             manager.deviceHandler = { [self] in handle($0) }
+            // 主動請求「輸入監控」：系統立即把程式列入清單並詢問（否則要等到開啟裝置時才請求）。
+            // 授權前開啟裝置會失敗，打開開關後由 watcher 重新開啟
+            Permissions.requestInputMonitoring()
+            let watcher = PermissionWatcher(queue: queue, needsAccessibility: gesturesNeedAccessibility) { [weak manager] in
+                manager?.stop()
+                try? manager?.start()
+            }
+            watcher.start()
+            permissionWatcher = watcher
         } else {
             print("使用模擬觸控來源")
         }
@@ -264,12 +276,9 @@ final class ServerRuntime: @unchecked Sendable {
             output = options.gesturesLog
                 ? CombinedGestureOutput([events, LoggingGestureOutput(label: "手勢", swipeMode: options.gesturesSwipe) { print($0) }])
                 : events
-            if !CGEventGestureOutput.isTrusted(prompt: true) {
-                print("""
-                手勢：尚未取得「輔助使用」權限，系統會丟棄合成的事件。
-                  請到 系統設定 → 隱私權與安全性 → 輔助使用，允許執行 mtk-server 的 App（終端機或 mtk-server 本身），然後重新啟動。
-                """)
-            }
+            // 未授權時系統會把程式加入「輔助使用」清單並跳出詢問；提示與之後的檢查由 PermissionWatcher 負責
+            _ = CGEventGestureOutput.isTrusted(prompt: true)
+            gesturesNeedAccessibility = true
         }
         var configuration = GestureController.Configuration()
         configuration.excludedBundleIDs = options.gesturesExclude

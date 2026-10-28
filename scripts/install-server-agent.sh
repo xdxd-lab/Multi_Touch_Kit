@@ -1,5 +1,6 @@
 #!/bin/zsh
 # 把 mtk-server 安裝成登入後自動執行的 LaunchAgent（當機會自動重啟）。
+# 安裝為 ~/Library/Application Support/MultiTouchKit/MultiTouchKit Server.app（授權清單只接受 app，見 scripts/lib/server-app.sh）。
 # 用法：scripts/install-server-agent.sh [mtk-server 選項…]   例：scripts/install-server-agent.sh --no-tuio
 # 注意：常駐的 mtk-server 會獨占觸控螢幕，此時 Unity 請改用 UDP 傳輸方式。
 # 簽章：有「MultiTouchKit Local Signing」（scripts/create-signing-identity.sh 建立）或 MTK_SIGN_IDENTITY 指定的身分時以它簽章，
@@ -7,23 +8,36 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lib/sign-server.sh
+source scripts/lib/server-app.sh
 LABEL=com.xdxd-lab.multitouchkit.server
 DEST="$HOME/Library/Application Support/MultiTouchKit"
+APP="$DEST/$MTK_SERVER_APP_NAME.app"
+EXECUTABLE="$APP/Contents/MacOS/$MTK_SERVER_APP_EXECUTABLE"
+# 2026-10 以前安裝成純執行檔（無法加入授權清單）：安裝 app 後移除
+LEGACY="$DEST/mtk-server"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/mtk-server.log"
+VERSION=$(sed -n 's/.*static let string = "\(.*\)".*/\1/p' Sources/MultiTouchKit/Touch.swift)
 
 swift build -c release --product mtk-server
 mkdir -p "$DEST" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
-# 先在暫存檔簽章，與已安裝版本比較簽章身分後才取代（簽章失敗時保留原本的版本）
-BEFORE=$(mtk_designated_requirement "$DEST/mtk-server")
-cp .build/release/mtk-server "$DEST/mtk-server.new"
-IDENTITY=$(mtk_sign_server "$DEST/mtk-server.new") || { rm -f "$DEST/mtk-server.new"; exit 1; }
-AFTER=$(mtk_designated_requirement "$DEST/mtk-server.new")
-mv -f "$DEST/mtk-server.new" "$DEST/mtk-server"
-echo "簽章：$IDENTITY（identifier $MTK_SIGN_IDENTIFIER）"
+# 先在暫存的 app 上簽章，與已安裝版本比較簽章身分後才取代（失敗時保留原本的版本）
+if [[ -d "$APP" ]]; then
+    BEFORE=$(mtk_designated_requirement "$APP")
+else
+    BEFORE=""
+fi
+STAGING="$DEST/.$MTK_SERVER_APP_NAME.app.new"
+rm -rf -- "$STAGING"
+mtk_build_server_app .build/release/mtk-server "$STAGING" "$VERSION"
+IDENTITY=$(mtk_sign_server "$STAGING") || { rm -rf -- "$STAGING"; exit 1; }
+AFTER=$(mtk_designated_requirement "$STAGING")
+rm -rf -- "$APP"
+mv "$STAGING" "$APP"
+echo "已安裝 $APP（簽章：$IDENTITY，bundle ID $MTK_SIGN_IDENTIFIER）"
 
 xml() { print -r -- "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
-ARGS="        <string>$(xml "$DEST/mtk-server")</string>"
+ARGS="        <string>$(xml "$EXECUTABLE")</string>"
 for a in "$@"; do ARGS+=$'\n'"        <string>$(xml "$a")</string>"; done
 
 cat > "$PLIST" <<PLIST
@@ -41,6 +55,9 @@ $ARGS
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <!-- 系統設定「登入項目」中把這個背景項目顯示為 MultiTouchKit Server -->
+    <key>AssociatedBundleIdentifiers</key>
+    <string>$LABEL</string>
     <key>StandardOutPath</key>
     <string>$(xml "$LOG")</string>
     <key>StandardErrorPath</key>
@@ -50,8 +67,12 @@ $ARGS
 PLIST
 
 launchctl bootout "gui/$UID" "$PLIST" 2>/dev/null || true
+if [[ -f "$LEGACY" ]]; then
+    rm -f -- "$LEGACY"
+    echo "已移除舊版的純執行檔 $LEGACY（系統設定中若還留有「mtk-server」項目，可用「−」移除）"
+fi
 launchctl bootstrap "gui/$UID" "$PLIST"
-echo "已安裝並啟動 $LABEL"
+echo "已啟動 $LABEL"
 mtk_report_authorization "$BEFORE" "$AFTER" "$IDENTITY"
 echo "紀錄檔：$LOG"
 echo "移除：scripts/uninstall-server-agent.sh"
