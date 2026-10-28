@@ -21,7 +21,7 @@ mtk_sign_identity_exists() {
 
 # 程式的 designated requirement；ad-hoc 時 codesign 以「# designated => cdhash …」顯示
 mtk_designated_requirement() {
-    [[ -f "$1" ]] || return 0
+    [[ -e "$1" ]] || return 0  # 執行檔或 app bundle（目錄）
     codesign -d -r- "$1" 2>&1 | sed -n 's/^#* *designated => //p'
 }
 
@@ -54,11 +54,13 @@ mtk_sign_server() {
 mtk_report_authorization() {
     local before=$1 after=$2 identity=$3
     if [[ -z "$before" ]]; then
-        echo "第一次安裝：請到 系統設定 → 隱私權與安全性，在「輸入監控」（以及使用 --gestures 時的「輔助使用」）允許 mtk-server"
+        echo "第一次安裝：mtk-server 啟動時會請求授權，系統會把「MultiTouchKit Server」加入 系統設定 → 隱私權與安全性 →「輸入監控」"
+        echo "  （使用 --gestures 時還有「輔助使用」）並跳出詢問。在清單中打開它的開關即可，打開後自動生效、不必重新啟動"
     elif [[ "$before" == "$after" ]]; then
         echo "簽章身分沒有改變：「輔助使用」「輸入監控」的授權仍有效"
     else
-        echo "簽章身分改變了，需要重新授權：系統設定 → 隱私權與安全性 → 輸入監控（以及輔助使用），移除 mtk-server 後重新加入"
+        echo "簽章身分改變了，需要重新授權：系統設定 → 隱私權與安全性 →「輸入監控」（以及「輔助使用」），"
+        echo "  把「MultiTouchKit Server」的開關關掉再打開；仍無效時用「−」移除，mtk-server 重新啟動後會再加入清單"
         echo "  之前：$before"
         echo "  現在：$after"
     fi
