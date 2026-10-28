@@ -29,7 +29,7 @@ else
 fi
 STAGING="$DEST/.$MTK_SERVER_APP_NAME.app.new"
 rm -rf -- "$STAGING"
-mtk_build_server_app .build/release/mtk-server "$STAGING" "$VERSION"
+mtk_build_server_app .build/release/mtk-server "$STAGING" "$VERSION" Assets/Brand/MultiTouchKit.icns
 IDENTITY=$(mtk_sign_server "$STAGING") || { rm -rf -- "$STAGING"; exit 1; }
 AFTER=$(mtk_designated_requirement "$STAGING")
 # 舊版先改名，新版就位後才刪除：mv 失敗時仍可還原

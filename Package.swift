@@ -23,7 +23,11 @@ let package = Package(
         .target(name: "MultiTouchKitGestures", dependencies: ["MultiTouchKit"]),
         .executableTarget(name: "mtk-probe", dependencies: ["MultiTouchKit"]),
         .executableTarget(name: "mtk-server", dependencies: ["MultiTouchKit", "MultiTouchKitGestures"]),
-        .executableTarget(name: "mtk-viewer", dependencies: ["MultiTouchKit"]),
+        .executableTarget(name: "mtk-viewer", dependencies: ["MultiTouchKit", "MultiTouchKitArt"]),
+        // 品牌圖示的繪製（mtk-viewer 的 Dock 圖示、mtk-art 產生的素材共用同一份幾何）；不對外發佈
+        .target(name: "MultiTouchKitArt"),
+        // 開發工具：產生 Assets/Brand 等素材（scripts/generate-art.sh）
+        .executableTarget(name: "mtk-art", dependencies: ["MultiTouchKitArt"]),
         .testTarget(name: "MultiTouchKitTests", dependencies: ["MultiTouchKit"]),
         .testTarget(name: "MultiTouchKitGesturesTests", dependencies: ["MultiTouchKitGestures", "MultiTouchKit"]),
         .testTarget(name: "MultiTouchKitCTests", dependencies: ["MultiTouchKitC", "CMultiTouchKit", "MultiTouchKit"]),

@@ -5,7 +5,7 @@ var hudText = "";
 var rafCallbacks = [];
 function element(id) {
   return {
-    id, clientWidth: 1920, clientHeight: 1028, width: 0, height: 0,
+    id, clientWidth: 1920, clientHeight: 1028, width: 0, height: 0, dataset: {},
     set textContent(v) { if (id === "hud") hudText = v; }, get textContent() { return id === "hud" ? hudText : ""; },
     addEventListener() {},
     getContext() {
@@ -16,7 +16,7 @@ function element(id) {
     },
   };
 }
-var elements = { view: element("view"), hud: element("hud"), fullscreen: element("fullscreen") };
+var elements = { view: element("view"), hud: element("hud"), panel: element("panel"), fullscreen: element("fullscreen") };
 var document = { getElementById: (id) => elements[id], documentElement: {}, fullscreenElement: null };
 var location = { search: "" };
 function URLSearchParams(search) { this.search = search; }

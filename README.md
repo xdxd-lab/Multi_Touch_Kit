@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="Assets/Brand/banner-dark.svg">
+    <img alt="MultiTouchKit" src="Assets/Brand/banner-light.svg" width="640">
+  </picture>
+</p>
+
 # MultiTouchKit
 
 macOS 上的 HID 多點觸控螢幕驅動（使用者空間），讓 Sculptor MF156LR 這類 Windows 相容觸控螢幕（ILITEK-TP，VID `0x222A`／PID `0x0001`）在 Mac 上取得 **10 點獨立觸控**，供 Swift、C/C++、Unity、Python、網頁等程式使用。
@@ -77,7 +84,8 @@ swift build -c release
 | `Sources/mtk-viewer` | 觸點視覺化視窗 |
 | `Unity/com.xdxd-lab.multitouchkit` | Unity 套件（含 universal `MultiTouchKit.bundle`） |
 | `Examples/` | C、Python（ctypes／UDP／WebSocket／TUIO）、網頁範例 |
-| `scripts/` | 測試、建置 Unity 外掛、C 範例、LaunchAgent 安裝／移除、固定簽章身分 |
+| `Assets/Brand` | 品牌圖示（.icns、1024 PNG、SVG）與 README banner，由 `Sources/MultiTouchKitArt` 以程式產生（`scripts/generate-art.sh`） |
+| `scripts/` | 測試、建置 Unity 外掛、C 範例、LaunchAgent 安裝／移除、固定簽章身分、產生品牌素材 |
 | `Tests/` | 單元測試（以實機擷取的報告為 fixture，不需硬體）；`Tests/UnityOffline` 為 Unity C# 的離線測試 |
 
 ## 開發
@@ -88,6 +96,7 @@ swift build                       # 建置全部
 ./scripts/build-c-example.sh 5    # 編譯並執行 C 範例 5 秒
 ./scripts/test-unity-offline.sh   # 不開 Unity Editor 檢查 C#：編譯套件與範例、執行 Udp 傳輸／JSON 解析器測試
 ./scripts/test-web-example.sh     # 網頁範例的位置換算與頁面腳本測試（macOS 內建的 JavaScriptCore）
+./scripts/generate-art.sh         # 重新產生品牌素材（改了 Sources/MultiTouchKitArt 後執行並 commit）
 ./scripts/check-signals.sh        # 三個執行檔收到 SIGINT／SIGTERM／SIGHUP 時都正常收尾後結束（含背景啟動的情況）
 ./scripts/build-unity-plugin.sh   # 重建 Unity 外掛（改了 Sources/MultiTouchKit 或 MultiTouchKitC 後要執行並 commit）
 MTK_BENCH=1 ./scripts/test.sh -c release --filter HotPathBenchmarks   # 熱路徑微基準（平常略過）

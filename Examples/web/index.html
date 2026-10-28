@@ -4,18 +4,48 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MultiTouchKit 網頁範例</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <style>
-  html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 16px -apple-system, "PingFang TC", sans-serif; overflow: hidden; }
+  /* 深色與 mtk-viewer 相同（黑底上的彩色觸點）；淺色時改為淺灰底，觸點顏色不變。--canvas／--grid 也供畫布讀取 */
+  :root {
+    color-scheme: dark light;
+    --canvas: #0E0F13; --text: #E6E8EC; --muted: #9198A1; --grid: rgba(255, 255, 255, 0.55);
+    --panel: rgba(28, 30, 37, 0.72); --panel-border: rgba(255, 255, 255, 0.08); --button: rgba(255, 255, 255, 0.08);
+    --online: #3FB950; --offline: #D29922;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --canvas: #F3F4F6; --text: #1F2328; --muted: #59636E; --grid: rgba(0, 0, 0, 0.45);
+      --panel: rgba(255, 255, 255, 0.78); --panel-border: rgba(0, 0, 0, 0.08); --button: rgba(0, 0, 0, 0.05);
+      --online: #1A7F37; --offline: #9A6700;
+    }
+  }
+  html, body { margin: 0; height: 100%; background: var(--canvas); color: var(--text); overflow: hidden;
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", "Noto Sans TC", sans-serif; }
   /* 用 fixed＋inset 而不是 100vw／100vh：Safari 的 vh 可能不等於實際內容區高度，捲軸設為「永遠顯示」時 100vw 也會比內容區寬 */
   canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; }
-  #hud { position: fixed; left: 16px; top: 12px; white-space: pre; pointer-events: none; }
-  #fullscreen { position: fixed; right: 16px; top: 12px; font: inherit; color: #ddd; background: #2a2a2a; border: 1px solid #555; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  #panel { position: fixed; left: 16px; top: 16px; max-width: min(560px, calc(100vw - 32px)); pointer-events: none;
+    padding: 12px 16px 14px; border-radius: 14px; background: var(--panel); border: 1px solid var(--panel-border);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18); }
+  #brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 15px; letter-spacing: -0.01em; margin-bottom: 6px; }
+  #brand img { width: 26px; height: 26px; }
+  #status { width: 8px; height: 8px; border-radius: 50%; background: var(--offline); box-shadow: 0 0 0 3px color-mix(in srgb, var(--offline) 25%, transparent); }
+  #panel[data-connected="true"] #status { background: var(--online); box-shadow: 0 0 0 3px color-mix(in srgb, var(--online) 25%, transparent); }
+  #hud { white-space: pre-wrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #fullscreen { position: fixed; right: 16px; top: 16px; font: inherit; font-weight: 550; color: var(--text); cursor: pointer;
+    padding: 7px 14px; border-radius: 999px; background: var(--button); border: 1px solid var(--panel-border);
+    -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+  #fullscreen:hover { background: color-mix(in srgb, var(--button) 60%, var(--text) 10%); }
   :fullscreen #fullscreen, :-webkit-full-screen #fullscreen { display: none; }
 </style>
 </head>
 <body>
 <canvas id="view"></canvas>
-<div id="hud">連線中…</div>
+<div id="panel" data-connected="false">
+  <div id="brand"><img src="favicon.svg" alt="">MultiTouchKit<span id="status"></span></div>
+  <div id="hud">連線中…</div>
+</div>
 <button id="fullscreen">全螢幕（F）</button>
 <script>
 // 連線 mtk-server 的 WebSocket，畫出每根手指。網址可用 ?ws=ws://主機:埠 覆寫。
@@ -33,6 +63,18 @@ const url = params.get("ws") || "ws://127.0.0.1:7778";
 const canvas = document.getElementById("view");
 const ctx = canvas.getContext("2d");
 const hud = document.getElementById("hud");
+const panel = document.getElementById("panel");
+// 畫布顏色跟隨深淺色（CSS 變數）；切換外觀時重新讀取
+const theme = { canvas: "#0E0F13", grid: "rgba(255,255,255,0.55)" };
+function readTheme() {
+  const style = getComputedStyle(document.documentElement);
+  theme.canvas = style.getPropertyValue("--canvas").trim() || theme.canvas;
+  theme.grid = style.getPropertyValue("--grid").trim() || theme.grid;
+}
+if (typeof matchMedia === "function") {
+  readTheme();
+  matchMedia("(prefers-color-scheme: light)").addEventListener("change", readTheme);
+}
 const touches = new Map();   // id → {x, y}（面板正規化座標）
 const ripples = [];          // 按下時的擴散圈
 let maxTouches = 0, taps = 0, frames = 0, devices = [], display = null, connected = false;
@@ -138,7 +180,7 @@ connect();
 function hue(id) { return (id * 37) % 360; }
 
 function drawCalibration(win, bounds) {
-  ctx.strokeStyle = "rgba(255,255,255,0.6)";
+  ctx.strokeStyle = theme.grid;
   ctx.lineWidth = 1;
   for (const y of [0.1, 0.5, 0.9]) {
     for (const x of [0.1, 0.5, 0.9]) {
@@ -155,7 +197,7 @@ function draw(now) {
   syncCanvasSize();
   const win = windowGeometry();
   const bounds = display ? display.bounds : null;
-  ctx.fillStyle = "#111";
+  ctx.fillStyle = theme.canvas;
   ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
   if (debug) drawCalibration(win, bounds);
   for (let i = ripples.length - 1; i >= 0; i--) {
@@ -199,6 +241,8 @@ function draw(now) {
     }
     // 內容改變時才更新 DOM（每幀重設 textContent 會造成不必要的版面重算）
     if (hud.textContent !== text) hud.textContent = text;
+    const state = String(connected);
+    if (panel.dataset.connected !== state) panel.dataset.connected = state;  // 狀態燈（CSS）
   }
   requestAnimationFrame(draw);
 }
