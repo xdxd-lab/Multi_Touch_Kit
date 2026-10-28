@@ -262,3 +262,72 @@ import Testing
         #expect(json.contains("\"pixels\":[1920,1080],\"hz\":60}"))
     }
 }
+
+@Suite struct DescriptorLimitTests {
+    @Test func hugeReportCountIsRejected() {
+        // Usage Page (Generic Desktop), Usage (X), Report Size 8, Report Count 0xFFFFFFFF, Input
+        let bytes: [UInt8] = [0x05, 0x01, 0x09, 0x30, 0x75, 0x08, 0x97, 0xFF, 0xFF, 0xFF, 0xFF, 0x81, 0x02]
+        #expect(throws: HIDDescriptorError.self) { try HIDReportDescriptor(bytes: bytes) }
+    }
+
+    @Test func hugeReportSizeIsRejected() {
+        let bytes: [UInt8] = [0x05, 0x01, 0x09, 0x30, 0x77, 0x00, 0x00, 0x01, 0x00, 0x95, 0x01, 0x81, 0x02]
+        #expect(throws: HIDDescriptorError.self) { try HIDReportDescriptor(bytes: bytes) }
+    }
+
+    @Test func randomBytesNeverCrash() {
+        var rng = SplitMix64(seed: 0x4D544B)
+        for _ in 0..<2000 {
+            let bytes = (0..<Int(rng.next() % 200)).map { _ in UInt8(truncatingIfNeeded: rng.next()) }
+            _ = try? HIDReportDescriptor(bytes: bytes)
+        }
+    }
+
+    @Test func realDescriptorStillParses() throws {
+        #expect(try HIDReportDescriptor(bytes: Fixtures.bytes(Fixtures.ilitekTouchDescriptor)).fields.count > 0)
+    }
+}
+
+/// 可重現的亂數（測試用）
+struct SplitMix64: RandomNumberGenerator {
+    var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+@Suite struct ManagerLifetimeTests {
+    /// 不存在的 VID：不會開啟任何裝置
+    func makeManager() throws -> MultiTouchManager {
+        var configuration = MultiTouchManager.Configuration()
+        configuration.vendorID = 0xFFFF
+        configuration.productID = 0xFFFF
+        let manager = MultiTouchManager(configuration: configuration)
+        try manager.start()
+        return manager
+    }
+
+    @Test(.timeLimit(.minutes(1))) func releasedWithoutStopOffQueue() throws {
+        weak var weakManager: MultiTouchManager?
+        do {
+            let manager = try makeManager()
+            weakManager = manager
+            #expect(manager.isRunning)
+        }
+        #expect(weakManager == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func releasedWithoutStopOnItsOwnQueue() throws {
+        var manager: MultiTouchManager? = try makeManager()
+        let queue = manager!.queue
+        weak let weakManager = manager
+        // 最後一個參照在 queue 上釋放：deinit 不可 queue.sync 自己（死結）
+        queue.sync { manager = nil }
+        #expect(weakManager == nil)
+    }
+}

@@ -42,7 +42,7 @@ mtk_stop();
 
 - `mtk_start` 已在執行時會先停止再重新開始。觸控螢幕晚接上也可以，接上後自動開始。
 - 同一程序只有一份狀態（單例），不需要 handle。
-- 也可用 `mtk_set_event_callback` 即時收到事件（在 HID 執行緒上呼叫，請盡快返回，`events` 只在回呼期間有效）。回呼與佇列同時有效。
+- 也可用 `mtk_set_event_callback` 即時收到事件（在 HID 執行緒上呼叫，請盡快返回，`events` 只在回呼期間有效）。回呼與佇列同時有效：每個事件都會交給回呼，也會放進佇列。`mtk_set_event_callback` 會等進行中的回呼結束才返回，返回後不會再以舊的 callback／user_data 呼叫，可以立即釋放 user_data；在回呼內呼叫它會立即生效，不會死結。
 
 ## 函式一覽
 
@@ -57,12 +57,12 @@ mtk_stop();
 | `int32_t mtk_poll_events(MTKTouchEvent *, int32_t cap)` | 依時間順序取出事件，回傳數量 | 任意 |
 | `uint64_t mtk_dropped_event_count(void)` | 佇列溢位（或重新同步）時丟棄的過時事件總數（觸點狀態不會遺失，見下） | 任意 |
 | `void mtk_request_resync(void)` | 下一次 `mtk_poll_events` 先依目前觸點狀態重新同步（App 回到前景時對帳） | 任意 |
-| `void mtk_set_event_callback(cb, user_data)` | 即時回呼；`NULL` 取消 | 任意 |
+| `void mtk_set_event_callback(cb, user_data)` | 即時回呼；`NULL` 取消。返回後保證舊回呼不再被呼叫 | 任意（含回呼內） |
 | `int32_t mtk_device_count(void)` | 已開啟的裝置數 | 任意 |
 | `int32_t mtk_get_device_info(int32_t index, MTKDeviceInfo *)` | 第 index 台裝置資訊 | 任意 |
 | `int32_t mtk_poll_log(char *buf, int32_t cap)` | 取出一則 UTF-8 診斷訊息，回傳位元組數；0 = 沒有 | 任意 |
 | `uint64_t mtk_now_ns(void)` | 與 `timestamp_ns` 相同時基的現在時間 | 任意 |
-| `int32_t mtk_set_display(const char *selector)` | 選擇觸控螢幕所在的顯示器（見下節） | 任意 |
+| `int32_t mtk_set_display(const char *selector)` | 選擇觸控螢幕所在的顯示器（見下節） | 任意（非主執行緒時非同步套用） |
 | `uint32_t mtk_touch_display_id(void)` | 目前選到的 `CGDirectDisplayID`，0 = 找不到 | **主執行緒** |
 | `int32_t mtk_map_to_window(x, y, display_id, *out_x, *out_y)` | 正規化座標 → 本程序 key window 內容區像素（原點左下） | **主執行緒** |
 

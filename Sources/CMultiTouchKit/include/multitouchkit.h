@@ -82,7 +82,8 @@ typedef struct MTKDeviceInfo {
     char product[64];
 } MTKDeviceInfo; /* 160 bytes */
 
-/* 在 HID 執行緒上呼叫；請盡快返回。events 只在回呼期間有效。 */
+/* 在 HID 執行緒上呼叫；請盡快返回。events 只在回呼期間有效。
+ * 回呼內可以呼叫 mtk_set_event_callback（立即生效），但不可呼叫 mtk_start／mtk_stop（可能死結）。 */
 typedef void (*MTKEventCallback)(const MTKTouchEvent *events, int32_t count, void *user_data);
 
 int32_t mtk_api_version(void);
@@ -90,7 +91,9 @@ const char *mtk_version(void);
 
 void mtk_default_config(MTKConfig *config);
 
-/* 開始偵測與讀取。已在執行時會先停止再以新設定重新開始。 */
+/* 開始偵測與讀取。已在執行時會先停止再以新設定重新開始。config 為 NULL 時使用預設值；
+ * config->struct_size 小於本版本的 sizeof(MTKConfig) 時回傳 MTK_ERR_INVALID_ARGUMENT。
+ * mtk_start／mtk_stop 可從任何執行緒呼叫，彼此會序列化。 */
 int32_t mtk_start(const MTKConfig *config);
 void mtk_stop(void);
 int32_t mtk_is_running(void);
@@ -104,7 +107,9 @@ uint64_t mtk_dropped_event_count(void);
 /* 要求下一次 mtk_poll_events 先依目前觸點狀態重新同步（例如 App 從背景回到前景時對帳）。任何執行緒皆可呼叫。 */
 void mtk_request_resync(void);
 
-/* 設定即時回呼（NULL 取消）。回呼與佇列同時有效。 */
+/* 設定即時回呼（NULL 取消）。設定回呼不影響佇列：每個事件都會傳給回呼，也會放進 mtk_poll_events 的佇列。
+ * 從其他執行緒呼叫時，會等進行中的回呼結束才返回；返回後保證不會再以舊的 callback／user_data 呼叫，
+ * 可以立即釋放舊的 user_data。 */
 void mtk_set_event_callback(MTKEventCallback callback, void *user_data);
 
 int32_t mtk_device_count(void);
@@ -128,6 +133,7 @@ int32_t mtk_map_to_window(float x, float y, uint32_t display_id, float *out_x, f
  * 選擇觸控螢幕對應的顯示器（UTF-8 文字，格式見 docs/c-api.md）。NULL 或 "" = 環境變數 MTK_DISPLAY，
  * 沒有設定時為 "auto"（依觸控面板實體尺寸挑選）。例："edid:6474:aa15"、"name:Sculptor,size:1920x1080"。
  * 可在 mtk_start 前後呼叫。格式錯誤回傳 MTK_ERR_INVALID_ARGUMENT（設定不變）。
+ * 從主執行緒以外呼叫時會非同步套用（排到主執行緒），緊接著的 mtk_touch_display_id 可能仍是舊結果。
  */
 int32_t mtk_set_display(const char *selector);
 

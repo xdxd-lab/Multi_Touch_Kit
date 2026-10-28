@@ -68,7 +68,8 @@ public struct TUIOEncoder: Sendable {
     ///   - alive: 目前所有仍在螢幕上的觸點（跨裝置）
     ///   - updated: 這個 frame 位置有變化或剛按下的觸點
     public mutating func encode(alive: [Touch], updated: [Touch], timestamp: UInt64) -> Data {
-        frameID &+= 1
+        // 在 1...Int32.max 循環：TUIO 把 fseq -1 視為特殊值
+        frameID = frameID == .max ? 1 : frameID + 1
         var elements: [Data] = [
             OSC.message("/tuio/2Dcur", [.string("source"), .string(source)]),
             OSC.message("/tuio/2Dcur", [.string("alive")] + alive.map { .int(sessionID($0)) }),
