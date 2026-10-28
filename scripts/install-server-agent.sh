@@ -32,8 +32,16 @@ rm -rf -- "$STAGING"
 mtk_build_server_app .build/release/mtk-server "$STAGING" "$VERSION"
 IDENTITY=$(mtk_sign_server "$STAGING") || { rm -rf -- "$STAGING"; exit 1; }
 AFTER=$(mtk_designated_requirement "$STAGING")
-rm -rf -- "$APP"
-mv "$STAGING" "$APP"
+# 舊版先改名，新版就位後才刪除：mv 失敗時仍可還原
+PREVIOUS="$DEST/.$MTK_SERVER_APP_NAME.app.old"
+rm -rf -- "$PREVIOUS"
+[[ -d "$APP" ]] && mv "$APP" "$PREVIOUS"
+if ! mv "$STAGING" "$APP"; then
+    [[ -d "$PREVIOUS" ]] && mv "$PREVIOUS" "$APP"
+    echo "無法安裝 $APP" >&2
+    exit 1
+fi
+rm -rf -- "$PREVIOUS"
 echo "已安裝 $APP（簽章：$IDENTITY，bundle ID $MTK_SIGN_IDENTIFIER）"
 
 xml() { print -r -- "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }

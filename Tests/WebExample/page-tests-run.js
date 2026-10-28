@@ -24,5 +24,14 @@ check("display 為 null：退回內容區＝面板並警告", hudText.includes("
 send({ type: "frame", touches: [{ id: 1, phase: "ended", x: 0.25, y: 0.5 }] });
 render();
 check("ended 後不再畫觸點", !arcs.some((a) => a.r === 45));
+// 斷線：清除觸點並顯示狀態（不能被下一幀覆蓋）
+send({ type: "frame", touches: [{ id: 2, phase: "began", x: 0.5, y: 0.5 }] });
+render();
+check("斷線前有觸點", arcs.some((a) => a.r === 45));
+sockets[0].onclose();
+render();
+check("斷線後清除觸點（不留幽靈圓點）", !arcs.some((a) => a.r === 45));
+render();
+check("斷線狀態不會被下一幀覆蓋", hudText.startsWith("連線中斷"), hudText.split("\n")[0]);
 print(pageFailures === 0 ? "PAGE ALL PASS" : `${pageFailures} PAGE FAIL`);
 if (pageFailures) throw new Error(`${pageFailures} 項失敗`);

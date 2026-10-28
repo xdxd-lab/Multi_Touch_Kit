@@ -218,8 +218,10 @@ final class ServerRuntime: @unchecked Sendable {
             // 授權前開啟裝置會失敗，打開開關後由 watcher 重新開啟
             Permissions.requestInputMonitoring()
             let watcher = PermissionWatcher(queue: queue, needsAccessibility: gesturesNeedAccessibility) { [weak manager] in
-                manager?.stop()
-                try? manager?.start()
+                // 只在授權前開啟失敗（沒有任何裝置）時重開：裝置已在運作時重開會取消正在觸碰的手指
+                guard let manager, manager.connectedDevices.isEmpty else { return }
+                manager.stop()
+                try? manager.start()
             }
             watcher.start()
             permissionWatcher = watcher

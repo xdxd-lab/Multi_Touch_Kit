@@ -59,7 +59,7 @@ final class PermissionWatcher {
     private func check() {
         if !inputMonitoring && Permissions.hasInputMonitoring {
             inputMonitoring = true
-            print("授權：已取得「輸入監控」，重新開啟觸控螢幕")
+            print("授權：已取得「輸入監控」")
             onInputMonitoringGranted()
         }
         if needsAccessibility && !accessibility && Permissions.hasAccessibility {

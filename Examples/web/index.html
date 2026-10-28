@@ -35,7 +35,7 @@ const ctx = canvas.getContext("2d");
 const hud = document.getElementById("hud");
 const touches = new Map();   // id → {x, y}（面板正規化座標）
 const ripples = [];          // 按下時的擴散圈
-let maxTouches = 0, taps = 0, frames = 0, devices = [], display = null;
+let maxTouches = 0, taps = 0, frames = 0, devices = [], display = null, connected = false;
 let debug = params.has("debug");
 
 // MARK: - 座標換算（純函式，Tests/WebExample 以 jsc 測試）
@@ -109,8 +109,14 @@ function syncCanvasSize() {
 
 function connect() {
   const ws = new WebSocket(url);
-  ws.onopen = () => hud.textContent = `已連線 ${url}`;
-  ws.onclose = () => { hud.textContent = `連線中斷，2 秒後重試（${url}）`; setTimeout(connect, 2000); };
+  ws.onopen = () => { connected = true; };
+  // 斷線時清除觸點：mtk-server 被強制結束或重新啟動時，最後的 ended 不會送達，不清除就會留下幽靈圓點
+  ws.onclose = () => {
+    connected = false;
+    touches.clear();
+    ripples.length = 0;
+    setTimeout(connect, 2000);
+  };
   ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
     if (msg.type === "hello") { devices = msg.devices; display = msg.display || null; }
@@ -177,8 +183,9 @@ function draw(now) {
     ctx.fillText(id, at.x, at.y);
   }
   const names = devices.map(d => `${d.product}（最多 ${d.maxContacts} 點）`).join("、") || "無";
-  if (hud.textContent.startsWith("已連線") || frames) {
-    let text = `${url}\n裝置：${names}\n觸點 ${touches.size}　最多 ${maxTouches}　按下 ${taps}`;
+  {
+    let text = connected ? `已連線 ${url}` : `連線中斷，2 秒後重試（${url}）`;
+    if (connected) text += `\n裝置：${names}\n觸點 ${touches.size}　最多 ${maxTouches}　按下 ${taps}`;
     const warning = geometryWarning(win, bounds, screen);
     if (warning) text += `\n⚠ ${warning}`;
     if (debug) {
@@ -190,7 +197,8 @@ function draw(now) {
       const first = touches.values().next().value;
       if (first) text += `\n第一個觸點：x=${first.x.toFixed(4)} y=${first.y.toFixed(4)}`;
     }
-    hud.textContent = text;
+    // 內容改變時才更新 DOM（每幀重設 textContent 會造成不必要的版面重算）
+    if (hud.textContent !== text) hud.textContent = text;
   }
   requestAnimationFrame(draw);
 }
