@@ -261,6 +261,14 @@ import Testing
         #expect(json.contains("\"display\":{\"id\":2,\"name\":\"Sculptor (1)\",\"edid\":\"6474:aa15:0\""))
         #expect(json.contains("\"pixels\":[1920,1080],\"hz\":60}"))
     }
+
+    @Test func displayMessageMatchesHelloDisplay() throws {
+        let message = TouchJSON.display(displays[2])
+        #expect(message == "{\"type\":\"display\",\"v\":1,\"display\":" + TouchJSON.displayObject(displays[2]) + "}")
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(message.utf8)) as? [String: Any])
+        #expect(object["type"] as? String == "display")
+        #expect(TouchJSON.display(nil) == "{\"type\":\"display\",\"v\":1,\"display\":null}")
+    }
 }
 
 @Suite struct DescriptorLimitTests {

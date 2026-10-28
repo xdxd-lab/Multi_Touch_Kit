@@ -96,6 +96,16 @@ scripts/uninstall-server-agent.sh
 
 `display` 為觸控螢幕所在的顯示器（依 `--display` 選擇；找不到時省略）：`bounds` 是全域 Quartz 座標 `[x, y, 寬, 高]`（點，原點在主螢幕左上、y 向下），`pixels` 為目前解析度。把觸控換算成全域螢幕座標：`X = bounds[0] + x * bounds[2]`、`Y = bounds[1] + y * bounds[3]`。
 
+## `display`：觸控螢幕對應的顯示器改變（只有 WebSocket）
+
+```json
+{"type":"display","v":1,"display":{"id":2,"name":"Sculptor (1)","edid":"6474:aa15:0", … ,"bounds":[1920,0,1920,1080],"pixels":[1920,1080],"hz":60}}
+```
+
+hello 只在連線時送一次；之後對應的顯示器改變時另外送出，內容與 hello 的 `display` 相同（找不到顯示器時為 `null`）。
+常見情況：觸控螢幕晚於 `mtk-server` 接上（例如原本被 Unity 獨占），`auto` 從主螢幕改為觸控螢幕；或在「顯示器」設定中重新排列。
+需要換算螢幕座標的用戶端請以最後收到的 `display` 為準。
+
 用戶端送給伺服器的訊息一律忽略。
 
 ## TUIO 1.1
@@ -118,7 +128,18 @@ scripts/uninstall-server-agent.sh
 | `Examples/python/udp_receiver.py [PORT]` | 印出 UDP JSON |
 | `Examples/python/ws_client.py [ws://127.0.0.1:7778] [秒數]` | 只用標準函式庫的 WebSocket 用戶端 |
 | `Examples/python/tuio_receiver.py [PORT] [秒數]` | 內含極簡 OSC 解碼 |
-| `Examples/web/index.html` | 瀏覽器開啟即可畫出觸點；`?ws=ws://主機:埠` 可覆寫網址 |
+| `Examples/web/index.html` | 瀏覽器開啟即可畫出觸點；`?ws=ws://主機:埠` 可覆寫網址、`?debug` 顯示診斷。位置換算見下節 |
 | Unity `UdpTransport` | 見 [unity.md](unity.md) |
+
+### 網頁範例的位置對齊
+
+觸點座標是「整片觸控面板」的 0..1，網頁的內容區（viewport）通常不等於整片面板：視窗模式時只佔一部分；Safari 以綠色按鈕全螢幕時，若「顯示方式 → 在全螢幕中永遠顯示工具列」開著，頂部的工具列／分頁列仍會佔用。
+若直接以 `x × 畫布寬`、`y × 畫布高` 換算，就會出現系統性偏差，例如「底部最準、越往上越偏下」。範例的做法：
+
+1. **建議**：把瀏覽器視窗移到觸控螢幕，按 **F**（或右上角「全螢幕」按鈕）以 Fullscreen API 全螢幕。內容區就是整個螢幕，直接相乘即可，各瀏覽器都準。
+2. 其他情況（視窗模式、Safari 綠色按鈕全螢幕）：以 `display.bounds` 與視窗位置（`screenX`／`screenY`，加上視窗外框與內容區的高度差＝上方工具列）換算出觸點在內容區中的位置，與 Unity 的 KeyWindow 模式相同。前提是頁面縮放為 100%，且開發者工具沒有停靠在側邊或下方；不符合時畫面上會出現警告。
+3. 按 **D**（或網址加 `?debug`）顯示診斷資訊（換算方式、bounds、視窗與內容區的位置、devicePixelRatio）與 9 個校正十字：觸碰十字中心，圓點應落在十字上。
+
+換算邏輯的測試：`scripts/test-web-example.sh`（以 macOS 內建、Safari 所用的 JavaScriptCore 執行）。
 
 2026-10-28 以 `--simulate` 驗證：3 秒內 UDP 376 則、WebSocket 377 則（含 hello）、TUIO 376 個 bundle，frame 間隔中位數 8.00 ms。
