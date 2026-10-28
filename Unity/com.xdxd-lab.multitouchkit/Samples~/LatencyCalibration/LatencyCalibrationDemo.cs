@@ -7,6 +7,7 @@ using UnityEngine;
 /// 節奏遊戲延遲校正：跟著節拍器點擊螢幕任意位置，計算點擊相對節拍的誤差。
 /// 誤差中位數 = 觸控延遲 + 音訊輸出延遲 + 個人習慣，可直接當作遊戲的「判定偏移」。
 /// 判定用的是觸控時間戳記換算成的 dspTime（MultiTouchTouch.DspTime），不受畫面幀率影響。
+/// 統計與顯示用的字串只在新的點擊（或 BPM 改變）時更新，OnGUI 不配置記憶體。
 /// </summary>
 public sealed class LatencyCalibrationDemo : MonoBehaviour
 {
@@ -24,8 +25,12 @@ public sealed class LatencyCalibrationDemo : MonoBehaviour
     double m_StartDsp;
     double m_NextBeatDsp;
     readonly List<double> m_Offsets = new List<double>();
-    double m_LastOffsetMs;
+    readonly List<double> m_Sorted = new List<double>();
     string m_LastJudge = "";
+    string m_LastLine = "";
+    string m_StatsLine;
+    string m_HintLine;
+    float m_HintBpm = -1;
     GUIStyle m_Big;
     GUIStyle m_Normal;
 
@@ -78,21 +83,24 @@ public sealed class LatencyCalibrationDemo : MonoBehaviour
         if (touch.Phase != MultiTouchPhase.Began || !MultiTouchClock.HasDspMapping) return;
         double beats = (touch.DspTime - m_StartDsp) / Interval;
         double offsetMs = (beats - Math.Round(beats)) * Interval * 1000; // 正值 = 比節拍晚
-        m_LastOffsetMs = offsetMs;
         m_Offsets.Add(offsetMs);
         if (m_Offsets.Count > sampleCount) m_Offsets.RemoveAt(0);
 
-        double corrected = Math.Abs(offsetMs - Median());
+        double median = Median();
+        double corrected = Math.Abs(offsetMs - median);
         m_LastJudge = corrected <= perfectWindowMs ? "Perfect" : corrected <= goodWindowMs ? "Good" : "Miss";
+        m_LastLine = $"這次 {offsetMs:+0.0;-0.0} ms";
+        m_StatsLine = null; // 下次 OnGUI 重建
     }
 
     double Median()
     {
         if (m_Offsets.Count == 0) return 0;
-        var sorted = new List<double>(m_Offsets);
-        sorted.Sort();
-        int mid = sorted.Count / 2;
-        return sorted.Count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+        m_Sorted.Clear();
+        for (int i = 0; i < m_Offsets.Count; i++) m_Sorted.Add(m_Offsets[i]);
+        m_Sorted.Sort();
+        int mid = m_Sorted.Count / 2;
+        return m_Sorted.Count % 2 == 1 ? m_Sorted[mid] : (m_Sorted[mid - 1] + m_Sorted[mid]) / 2;
     }
 
     double StandardDeviation()
@@ -115,11 +123,19 @@ public sealed class LatencyCalibrationDemo : MonoBehaviour
         }
         float w = Screen.width;
         float h = Screen.height;
-        GUI.Label(new Rect(0, h * 0.18f, w, 40), $"跟著節拍（{bpm:F0} BPM）點擊螢幕任意位置，累積 16 次以上", m_Normal);
+        if (m_HintLine == null || bpm != m_HintBpm)
+        {
+            m_HintBpm = bpm;
+            m_HintLine = $"跟著節拍（{bpm:F0} BPM）點擊螢幕任意位置，累積 16 次以上";
+        }
+        if (m_StatsLine == null)
+        {
+            m_StatsLine = $"建議判定偏移：{Median():+0.0;-0.0} ms　穩定度（標準差）：{StandardDeviation():0.0} ms　樣本 {m_Offsets.Count}";
+        }
+        GUI.Label(new Rect(0, h * 0.18f, w, 40), m_HintLine, m_Normal);
         GUI.Label(new Rect(0, h * 0.32f, w, 70), m_LastJudge, m_Big);
-        GUI.Label(new Rect(0, h * 0.42f, w, 40), m_Offsets.Count > 0 ? $"這次 {m_LastOffsetMs:+0.0;-0.0} ms" : "", m_Normal);
-        GUI.Label(new Rect(0, h * 0.55f, w, 40),
-            $"建議判定偏移：{Median():+0.0;-0.0} ms　穩定度（標準差）：{StandardDeviation():0.0} ms　樣本 {m_Offsets.Count}", m_Normal);
+        GUI.Label(new Rect(0, h * 0.42f, w, 40), m_LastLine, m_Normal);
+        GUI.Label(new Rect(0, h * 0.55f, w, 40), m_StatsLine, m_Normal);
         if (!MultiTouchClock.HasDspMapping)
             GUI.Label(new Rect(0, h * 0.65f, w, 40), "等待音訊系統啟動…", m_Normal);
     }

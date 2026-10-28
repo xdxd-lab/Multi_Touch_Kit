@@ -67,11 +67,36 @@ namespace MultiTouchKit
         /// <summary>每個觸控事件（began／moved／ended／cancelled）在主執行緒上觸發一次。</summary>
         public static event Action<MultiTouchTouch> TouchReceived;
 
-        /// <summary>目前仍在螢幕上的觸點（key 為 Touch.Id）。</summary>
+        /// <summary>
+        /// 目前仍在螢幕上的觸點（key 為 Touch.Id）。查詢（<c>Count</c>、<c>TryGetValue</c>）不配置記憶體；
+        /// 但透過這個介面 <c>foreach</c> 每次都會配置 enumerator，每幀列舉請改用 <see cref="GetActiveTouches"/>。
+        /// </summary>
         public IReadOnlyDictionary<ulong, MultiTouchTouch> ActiveTouches => m_Active;
 
-        /// <summary>這一幀收到的所有事件，依時間順序。</summary>
+        /// <summary>
+        /// 這一幀收到的所有事件，依時間順序。用 <c>for</c> 搭配索引讀取不配置記憶體（<c>foreach</c> 透過介面會配置）。
+        /// </summary>
         public IReadOnlyList<MultiTouchTouch> TouchesThisFrame => m_ThisFrame;
+
+        /// <summary>
+        /// 把目前仍在螢幕上的觸點複製到 <paramref name="results"/>（先清空），依 Id 由小到大排序（先落下的在前），回傳數量。
+        /// 重複使用同一個 List 時不配置記憶體，適合每幀呼叫。
+        /// </summary>
+        public int GetActiveTouches(List<MultiTouchTouch> results)
+        {
+            if (results == null) throw new ArgumentNullException(nameof(results));
+            results.Clear();
+            foreach (var touch in m_Active.Values) results.Add(touch);
+            results.Sort(ByIdComparer.Instance);
+            return results.Count;
+        }
+
+        // 用 IComparer 而不是 Comparison 委派：部分 Mono 版本的 List.Sort(Comparison) 每次都會包一個新的 comparer
+        sealed class ByIdComparer : IComparer<MultiTouchTouch>
+        {
+            public static readonly ByIdComparer Instance = new ByIdComparer();
+            public int Compare(MultiTouchTouch a, MultiTouchTouch b) => a.Id.CompareTo(b.Id);
+        }
 
         public bool IsRunning => m_Transport != null;
 

@@ -1,10 +1,8 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using System.Threading;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
@@ -23,32 +21,36 @@ namespace MultiTouchKit
     /// 溢位時丟棄並在下一個 frame 對帳。每個 frame 都列出該裝置所有仍在螢幕上的觸點，
     /// 所以不在其中的觸點以 Cancelled 結束，新的觸點以 Began 開始。</item>
     /// </list>
+    /// 穩定狀態下不配置記憶體：接收執行緒用固定的緩衝區接收、以 <see cref="TouchFrameJsonParser"/> 直接解析位元組，
+    /// 兩個執行緒之間以兩組 List 交換（容量長到需要的大小後就不再配置）。
     /// </remarks>
     public sealed class UdpTransport : IMultiTouchTransport
     {
         /// <summary>佇列上限（約 8 秒的 125 Hz 封包）。</summary>
         public const int MaxQueuedPackets = 1024;
         const int ReceivePollMilliseconds = 100;
+        /// <summary>UDP 封包的最大長度</summary>
+        const int MaxPacketBytes = 65536;
 
-        [Serializable]
-        sealed class FrameMessage
+        /// <summary>一個 frame 在觸點清單中的範圍</summary>
+        struct FrameRange
         {
-            public string type;
-            public int device;
-            public long seq;
-            public long t;
-            public TouchMessage[] touches;
+            public int Device;
+            public int Start;
+            public int Count;
         }
 
-        [Serializable]
-        sealed class TouchMessage
+        /// <summary>接收執行緒解析好、等待主執行緒取出的 frame（兩組輪流使用）</summary>
+        sealed class Batch
         {
-            public long id;
-            public int cid;
-            public string phase;
-            public float x;
-            public float y;
-            public float p = -1;
+            public readonly List<FrameRange> Frames = new List<FrameRange>(64);
+            public readonly List<MultiTouchTouch> Touches = new List<MultiTouchTouch>(256);
+
+            public void Clear()
+            {
+                Frames.Clear();
+                Touches.Clear();
+            }
         }
 
         readonly int m_Port;
@@ -56,10 +58,15 @@ namespace MultiTouchKit
         readonly IPAddress m_BindAddress;
         readonly bool m_ReportStationary;
         readonly double m_Timeout;
-        readonly ConcurrentQueue<string> m_Queue = new ConcurrentQueue<string>();
-        int m_QueuedCount;
-        int m_Overflowed;
+        // m_Lock 保護 m_Incoming 與 m_Overflowed；主執行緒取出時與 m_Polling 交換
+        readonly object m_Lock = new object();
+        Batch m_Incoming = new Batch();
+        Batch m_Polling = new Batch();
+        bool m_Overflowed;
         long m_LastPacketTimestamp;
+        // 以下只在接收執行緒存取
+        readonly byte[] m_ReceiveBuffer = new byte[MaxPacketBytes];
+        readonly List<MultiTouchTouch> m_Parsed = new List<MultiTouchTouch>(64);
         UdpClient m_Client;
         Thread m_Thread;
         volatile bool m_Running;
@@ -116,20 +123,28 @@ namespace MultiTouchKit
 
         void ReceiveLoop()
         {
-            var remote = new IPEndPoint(IPAddress.Any, 0);
+            var socket = m_Client.Client;
             while (m_Running)
             {
                 try
                 {
-                    byte[] data = m_Client.Receive(ref remote);
+                    // Socket.Receive(byte[])：不配置（UdpClient.Receive 每個封包都會配置新的 byte[]，ReceiveFrom 會配置來源位址）
+                    int length = socket.Receive(m_ReceiveBuffer);
                     Interlocked.Exchange(ref m_LastPacketTimestamp, Stopwatch.GetTimestamp());
-                    if (Interlocked.Increment(ref m_QueuedCount) > MaxQueuedPackets)
+                    m_Parsed.Clear();
+                    if (!TouchFrameJsonParser.TryParse(m_ReceiveBuffer, length, m_Parsed, out int device)) continue;
+                    lock (m_Lock)
                     {
-                        // 主執行緒沒有在取出：丟棄所有舊封包，下一次 Poll 對帳
-                        while (m_Queue.TryDequeue(out _)) Interlocked.Decrement(ref m_QueuedCount);
-                        Interlocked.Exchange(ref m_Overflowed, 1);
+                        if (m_Incoming.Frames.Count >= MaxQueuedPackets)
+                        {
+                            // 主執行緒沒有在取出：丟棄所有舊 frame，下一次 Poll 對帳
+                            m_Incoming.Clear();
+                            m_Overflowed = true;
+                        }
+                        m_Incoming.Frames.Add(new FrameRange { Device = device, Start = m_Incoming.Touches.Count, Count = m_Parsed.Count });
+                        // AddRange(IEnumerable) 在部分 Mono 版本會配置，逐一加入
+                        for (int k = 0; k < m_Parsed.Count; k++) m_Incoming.Touches.Add(m_Parsed[k]);
                     }
-                    m_Queue.Enqueue(Encoding.UTF8.GetString(data));
                 }
                 catch (SocketException e) when (e.SocketErrorCode == SocketError.TimedOut || e.SocketErrorCode == SocketError.WouldBlock)
                 {
@@ -148,26 +163,26 @@ namespace MultiTouchKit
 
         public void Poll(List<MultiTouchTouch> output)
         {
-            if (Interlocked.Exchange(ref m_Overflowed, 0) == 1)
+            bool overflowed;
+            lock (m_Lock)
+            {
+                var batch = m_Incoming;
+                m_Incoming = m_Polling;
+                m_Polling = batch;
+                overflowed = m_Overflowed;
+                m_Overflowed = false;
+            }
+            if (overflowed)
             {
                 Debug.LogWarning($"[MultiTouchKit] UDP 佇列超過 {MaxQueuedPackets} 個封包（Update 暫停？），已丟棄舊資料並依下一個 frame 重新同步");
                 m_ResyncAll = true;
             }
-            while (m_Queue.TryDequeue(out string json))
+            var frames = m_Polling.Frames;
+            var parsed = m_Polling.Touches;
+            for (int f = 0; f < frames.Count; f++)
             {
-                Interlocked.Decrement(ref m_QueuedCount);
-                if (json.IndexOf("\"type\":\"frame\"", StringComparison.Ordinal) < 0) continue;
-                FrameMessage frame;
-                try
-                {
-                    frame = JsonUtility.FromJson<FrameMessage>(json);
-                }
-                catch (ArgumentException)
-                {
-                    continue;
-                }
-                if (frame?.touches == null) continue;
-                bool resync = m_ResyncAll || m_ResyncDevices.Contains(frame.device);
+                var frame = frames[f];
+                bool resync = m_ResyncAll || m_ResyncDevices.Contains(frame.Device);
                 if (m_ResyncAll)
                 {
                     // 其他裝置在收到各自的下一個 frame 時對帳
@@ -175,19 +190,9 @@ namespace MultiTouchKit
                     foreach (var touch in m_Active.Values) m_ResyncDevices.Add(touch.DeviceId);
                 }
                 if (resync) m_SeenInFrame.Clear();
-                foreach (var t in frame.touches)
+                for (int k = frame.Start; k < frame.Start + frame.Count; k++)
                 {
-                    var touch = new MultiTouchTouch
-                    {
-                        Id = (ulong)t.id,
-                        ContactId = t.cid,
-                        DeviceId = frame.device,
-                        Phase = ParsePhase(t.phase),
-                        Normalized = new Vector2(t.x, t.y),
-                        TimestampNs = (ulong)frame.t,
-                        Pressure = t.p,
-                        FrameSequence = (uint)frame.seq,
-                    };
+                    var touch = parsed[k];
                     if (resync) m_SeenInFrame.Add(touch.Id);
                     bool known = m_Active.ContainsKey(touch.Id);
                     if (touch.IsTerminal)
@@ -206,10 +211,11 @@ namespace MultiTouchKit
                 }
                 if (resync)
                 {
-                    m_ResyncDevices.Remove(frame.device);
-                    CancelWhere(output, frame.device, true);
+                    m_ResyncDevices.Remove(frame.Device);
+                    CancelWhere(output, frame.Device, true);
                 }
             }
+            m_Polling.Clear();
             CheckTimeout(output);
         }
 
@@ -239,18 +245,6 @@ namespace MultiTouchKit
                 touch.Phase = MultiTouchPhase.Cancelled;
                 m_Active.Remove(id);
                 output.Add(touch);
-            }
-        }
-
-        static MultiTouchPhase ParsePhase(string phase)
-        {
-            switch (phase)
-            {
-                case "began": return MultiTouchPhase.Began;
-                case "moved": return MultiTouchPhase.Moved;
-                case "stationary": return MultiTouchPhase.Stationary;
-                case "ended": return MultiTouchPhase.Ended;
-                default: return MultiTouchPhase.Cancelled;
             }
         }
 
