@@ -2,6 +2,11 @@ import Foundation
 import IOKit
 import IOKit.hid
 
+enum TouchDeviceError: Error {
+    /// IOHIDDeviceCreate 失敗：service 已終止（通常是裝置已拔除）
+    case unavailable
+}
+
 /// 一個實體觸控螢幕：數位板介面，加上同一 USB 裝置上被一併獨占的其他 HID 介面。
 /// 除了 init 以外，所有方法都必須在 MultiTouchManager.queue 上呼叫。
 final class TouchDevice: @unchecked Sendable {
@@ -43,8 +48,9 @@ final class TouchDevice: @unchecked Sendable {
         set { tracker.stalePolicy = newValue }
     }
 
+    /// 描述元不是可解析的觸控螢幕時回傳 nil；service 已失效時丟出 `TouchDeviceError.unavailable`
     init?(id: Int, service: io_service_t, info: HIDServiceInfo, queue: DispatchQueue) throws {
-        guard let device = IOHIDDeviceCreate(kCFAllocatorDefault, service) else { return nil }
+        guard let device = IOHIDDeviceCreate(kCFAllocatorDefault, service) else { throw TouchDeviceError.unavailable }
         let descriptor = try HIDReportDescriptor(bytes: info.reportDescriptor)
         guard let layout = DigitizerLayout(descriptor: descriptor) else { return nil }
         self.id = id

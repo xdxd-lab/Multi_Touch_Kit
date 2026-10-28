@@ -67,7 +67,14 @@ public final class MultiTouchManager: @unchecked Sendable {
     }
 
     deinit {
-        if notifyPort != nil { teardown() }
+        // 沒有呼叫 stop() 就被釋放：teardown 必須在 queue 上執行，否則會與正在處理的 HID 報告競爭。
+        // 最後一個參照在 handler 內（queue 上）被釋放時直接執行，避免 queue.sync 死結。
+        guard notifyPort != nil else { return }
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            teardown()
+        } else {
+            queue.sync { teardown() }
+        }
     }
 
     /// 每個 frame 呼叫一次（在 `queue` 上）
@@ -146,6 +153,8 @@ public final class MultiTouchManager: @unchecked Sendable {
             deviceHandler?(.removed(device.info))
         }
         devices.removeAll()
+        // open() 重試時 IOObjectRetain 過
+        for item in pending.values { IOObjectRelease(item.service) }
         pending.removeAll()
         retryTimer?.cancel()
         retryTimer = nil
@@ -196,6 +205,9 @@ public final class MultiTouchManager: @unchecked Sendable {
                 return
             }
             device = created
+        } catch TouchDeviceError.unavailable {
+            emitLog("\(info.product) 已無法開啟（可能已拔除），停止重試")
+            return
         } catch {
             emitLog("\(info.product) 的報告描述元解析失敗：\(error)")
             return
@@ -222,7 +234,9 @@ public final class MultiTouchManager: @unchecked Sendable {
         device.stalePolicy = ContactTracker.StalePolicy(timeout: max(0, configuration.staleTouchTimeout),
                                                         tolerance: configuration.staleTouchTolerance)
         device.reportTimeout = max(0, configuration.reportTimeout)
-        device.allocateTouchID = { [unowned self] in
+        // weak：manager 釋放期間仍可能有一筆已排入 queue 的報告
+        device.allocateTouchID = { [weak self] in
+            guard let self else { return 0 }
             defer { nextTouchID += 1 }
             return nextTouchID
         }
@@ -325,7 +339,12 @@ final class PowerObserver {
             guard let refcon else { return }
             Unmanaged<PowerObserver>.fromOpaque(refcon).takeUnretainedValue().handle(type: type, argument: argument)
         }, &notifier)
-        guard rootPort != 0, let notificationPort else { return nil }
+        guard rootPort != 0 else { return nil }
+        guard let notificationPort else {
+            IODeregisterForSystemPower(&notifier)
+            IOServiceClose(rootPort)
+            return nil
+        }
         port = notificationPort
         IONotificationPortSetDispatchQueue(notificationPort, queue)
     }

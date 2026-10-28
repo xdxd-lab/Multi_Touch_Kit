@@ -59,7 +59,9 @@ public class Drums : MonoBehaviour
 | 欄位 | 說明 |
 |---|---|
 | `transport` | `Native`：程序內直接讀取（最低延遲）。`Udp`：接收 `mtk-server` 的 UDP JSON |
-| `udpPort` | Udp 模式監聽的埠（預設 7777，只綁定 127.0.0.1） |
+| `udpPort` | Udp 模式監聽的埠（預設 7777） |
+| `udpBindAddress` | Udp 模式監聽的位址。空白 = 127.0.0.1（只接收本機）；接收其他電腦的 `mtk-server` 時填 `0.0.0.0` |
+| `udpTimeout` | Udp 模式：有觸點時超過此秒數沒有收到資料就全部 Cancelled（預設 0.5；0 = 關閉）。`mtk-server` 按住時約以 125 Hz 送出，被強制結束或重新啟動時最後的 ended 會遺失 |
 | `exclusive` | 獨占觸控螢幕，系統游標不再跟著動（Native） |
 | `vendorId`／`productId` | 只使用指定裝置（0 = 不限） |
 | `screenMapping` | `FullScreen`：假設遊戲全螢幕顯示在觸控螢幕上，正規化座標直接乘上 `Screen` 尺寸。`KeyWindow`：依目前視窗在觸控螢幕上的位置換算（視窗模式；需要原生外掛） |
@@ -86,7 +88,9 @@ public class Drums : MonoBehaviour
 | 只有 Unity 使用觸控 | `Native` |
 | `mtk-server` 已在執行（例如裝成 LaunchAgent），或要和其他程式共用 | `Udp`（Native 會因裝置已被獨占而持續重試） |
 | 沒有觸控螢幕，想開發／測試 | `Udp` ＋ `mtk-server --simulate` |
-| Windows／Linux 編輯器 | 原生外掛只支援 macOS；可用 `Udp` 接收另一台 Mac 上 `mtk-server --udp <這台 IP>:7777` 的資料（未驗證） |
+| Windows／Linux 編輯器 | 原生外掛只支援 macOS；可用 `Udp`（`udpBindAddress` 設為 `0.0.0.0`）接收另一台 Mac 上 `mtk-server --udp <這台 IP>:7777` 的資料（未驗證；請注意防火牆，UDP 沒有驗證來源） |
+
+UDP 模式的保護：佇列最多保留 1024 個封包（約 8 秒），主執行緒暫停導致溢位時會丟棄舊資料，並依下一個 frame 對帳（不在其中的觸點 Cancelled、新的觸點 Began）；有觸點卻超過 `udpTimeout` 沒有資料時全部 Cancelled。
 
 UDP 模式下時間戳記與原生時鐘相同時基（同一台 Mac）；`DspTime` 換算需要原生外掛可載入（macOS），否則以 `Stopwatch` 近似。
 

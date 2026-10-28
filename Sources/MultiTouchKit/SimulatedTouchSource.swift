@@ -18,8 +18,14 @@ public final class SimulatedTouchSource: @unchecked Sendable {
     public let rate: Double
     public let pattern: Pattern
     public let queue: DispatchQueue
-    /// 在 `queue` 上呼叫
-    public var frameHandler: (@Sendable (TouchFrame) -> Void)?
+    /// 在 `queue` 上呼叫；任何執行緒皆可設定
+    public var frameHandler: (@Sendable (TouchFrame) -> Void)? {
+        get { lock.withLock { _frameHandler } }
+        set { lock.withLock { _frameHandler = newValue } }
+    }
+
+    private let lock = NSLock()
+    private var _frameHandler: (@Sendable (TouchFrame) -> Void)?
 
     private var timer: DispatchSourceTimer?
     private var tracker = ContactTracker()

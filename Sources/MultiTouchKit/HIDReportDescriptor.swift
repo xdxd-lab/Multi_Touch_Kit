@@ -100,10 +100,18 @@ public struct HIDField: Sendable, Equatable {
 
 public enum HIDDescriptorError: Error, Sendable {
     case truncated(offset: Int)
+    /// Report Size／Report Count／欄位總數超過上限（畸形或惡意的描述元）
+    case limitExceeded(offset: Int)
 }
 
 /// HID 報告描述元解析器（HID 1.11 §6.2.2），只處理觸控需要的項目
 public struct HIDReportDescriptor: Sendable {
+    /// 描述元來自外部裝置，屬於不可信輸入：沒有上限時，一個 Report Count = 0xFFFFFFFF 就能配置數十億個欄位。
+    /// 上限遠大於實際裝置所需（ILITEK 約 100 個欄位；廠商自訂的 feature report 最多數千位元組）
+    static let maxReportSize = 256
+    static let maxReportCount = 65_536
+    static let maxFields = 100_000
+
     public private(set) var fields: [HIDField] = []
     public private(set) var usesReportIDs = false
     private var reportBits: [ReportKey: Int] = [:]
@@ -153,6 +161,7 @@ public struct HIDReportDescriptor: Sendable {
 
         var i = 0
         while i < bytes.count {
+            let itemOffset = i
             let prefix = bytes[i]
             if prefix == 0xFE { // long item：跳過
                 guard i + 2 < bytes.count else { throw HIDDescriptorError.truncated(offset: i) }
@@ -180,6 +189,10 @@ public struct HIDReportDescriptor: Sendable {
                 switch tag {
                 case 0x8, 0x9, 0xB:
                     let kind: HIDReportKind = tag == 0x8 ? .input : (tag == 0x9 ? .output : .feature)
+                    guard g.reportSize <= Self.maxReportSize, g.reportCount <= Self.maxReportCount,
+                          fields.count + g.reportCount <= Self.maxFields else {
+                        throw HIDDescriptorError.limitExceeded(offset: itemOffset)
+                    }
                     var list = usages
                     if let lo = usageMin, let hi = usageMax, hi >= lo.usage {
                         let upper = min(Int(hi), Int(lo.usage) + max(g.reportCount, 1) - 1)

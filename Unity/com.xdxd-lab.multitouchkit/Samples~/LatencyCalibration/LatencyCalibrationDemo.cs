@@ -19,6 +19,7 @@ public sealed class LatencyCalibrationDemo : MonoBehaviour
     public double goodWindowMs = 80;
 
     AudioSource[] m_Sources;
+    AudioClip m_Click;
     int m_NextSource;
     double m_StartDsp;
     double m_NextBeatDsp;
@@ -34,7 +35,7 @@ public sealed class LatencyCalibrationDemo : MonoBehaviour
     {
         if (MultiTouchKitManager.Instance == null)
             new GameObject("MultiTouchKit").AddComponent<MultiTouchKitManager>();
-        var click = MakeClick();
+        var click = m_Click = MakeClick();
         m_Sources = new AudioSource[4];
         for (int i = 0; i < m_Sources.Length; i++)
         {
@@ -42,6 +43,12 @@ public sealed class LatencyCalibrationDemo : MonoBehaviour
             m_Sources[i].playOnAwake = false;
             m_Sources[i].clip = click;
         }
+    }
+
+    // 執行期間建立的 AudioClip 不會自動釋放；編輯器中每次 Play 都會累積
+    void OnDestroy()
+    {
+        if (m_Click != null) Destroy(m_Click);
     }
 
     void OnEnable() => MultiTouchKitManager.TouchReceived += OnTouch;

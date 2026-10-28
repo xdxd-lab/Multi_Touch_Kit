@@ -29,6 +29,12 @@ public sealed class TouchVisualizerDemo : MonoBehaviour
         m_Circle = MakeCircle(128);
     }
 
+    // 執行期間建立的 Texture2D 不會自動釋放；編輯器中每次 Play 都會累積
+    void OnDestroy()
+    {
+        if (m_Circle != null) Destroy(m_Circle);
+    }
+
     void OnEnable() => MultiTouchKitManager.TouchReceived += OnTouch;
 
     void OnDisable() => MultiTouchKitManager.TouchReceived -= OnTouch;

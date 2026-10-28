@@ -25,12 +25,16 @@ public final class GestureController: @unchecked Sendable {
     public let configuration: Configuration
     public let queue: DispatchQueue
     public let output: GestureOutput
-    /// 診斷訊息（在 `queue` 或主執行緒上呼叫）
-    public var logHandler: (@Sendable (String) -> Void)?
+    /// 診斷訊息（在 `queue` 或主執行緒上呼叫）；任何執行緒皆可設定
+    public var logHandler: (@Sendable (String) -> Void)? {
+        get { lock.withLock { _logHandler } }
+        set { lock.withLock { _logHandler = newValue } }
+    }
 
     private let lock = NSLock()
     private var _displayID: CGDirectDisplayID?
     private var _frontmostBundleID: String?
+    private var _logHandler: (@Sendable (String) -> Void)?
     private var observers: [NSObjectProtocol] = []
 
     // 以下只在 queue 上存取

@@ -9,7 +9,13 @@ import MultiTouchKit
 final class CRuntime: @unchecked Sendable {
     static let shared = CRuntime()
 
+    /// 資料鎖：佇列、回呼指標、log。持有時間很短，frameHandler 也會取得
     private let lock = NSLock()
+    /// 序列化 start／stop：兩個執行緒同時 mtk_start 時，不會留下沒被停止、仍獨占裝置的 manager
+    private let lifecycleLock = NSLock()
+    /// 呼叫回呼期間持有：`setCallback` 取得同一把鎖，所以返回後保證不會再以舊的 callback／user_data 呼叫。
+    /// 可重入：回呼內呼叫 mtk_set_event_callback（同一執行緒）不會死結
+    private let callbackLock = NSRecursiveLock()
     private var manager: MultiTouchManager?
     /// 溢位時以重新同步保證狀態一致的佇列（見 TouchEventQueue）
     private var queue = TouchEventQueue<MTKTouchEvent>(capacity: 4096)
@@ -25,7 +31,9 @@ final class CRuntime: @unchecked Sendable {
     var devices: [MultiTouchDeviceInfo] { lock.withLock { manager?.connectedDevices ?? [] } }
 
     func start(_ config: MTKConfig) -> Int32 {
-        stop()
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        stopLocked()
         var configuration = MultiTouchManager.Configuration()
         configuration.vendorID = config.vendor_id != 0 ? Int(config.vendor_id) : nil
         configuration.productID = config.product_id != 0 ? Int(config.product_id) : nil
@@ -57,6 +65,12 @@ final class CRuntime: @unchecked Sendable {
     }
 
     func stop() {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        stopLocked()
+    }
+
+    private func stopLocked() {
         let current = lock.withLock { () -> MultiTouchManager? in
             defer { manager = nil }
             return manager
@@ -64,10 +78,13 @@ final class CRuntime: @unchecked Sendable {
         current?.stop()
     }
 
+    /// 進行中的回呼結束後才返回（在回呼內呼叫時直接生效）
     func setCallback(_ callback: MTKEventCallback?, _ userData: UnsafeMutableRawPointer?) {
-        lock.withLock {
-            self.callback = callback
-            callbackUserData = userData
+        callbackLock.withLock {
+            lock.withLock {
+                self.callback = callback
+                callbackUserData = userData
+            }
         }
     }
 
@@ -102,7 +119,18 @@ final class CRuntime: @unchecked Sendable {
         lock.withLock { logs.isEmpty ? nil : logs.removeFirst() }
     }
 
-    private func enqueue(_ frame: TouchFrame) {
+    /// 測試用：清空佇列並設定容量（不啟動裝置）
+    func resetForTesting(capacity: Int = 4096, reportStationary: Bool = false) {
+        lock.withLock {
+            queue = TouchEventQueue(capacity: capacity)
+            reportedResyncs = 0
+            self.reportStationary = reportStationary
+            logs.removeAll()
+        }
+    }
+
+    /// MultiTouchManager 的 frameHandler（在 HID 佇列上）；測試也直接呼叫
+    func enqueue(_ frame: TouchFrame) {
         let includeStationary = lock.withLock { reportStationary }
         var events: [MTKTouchEvent] = []
         events.reserveCapacity(frame.touches.count)
@@ -124,6 +152,9 @@ final class CRuntime: @unchecked Sendable {
                 frame_seq: UInt32(truncatingIfNeeded: frame.sequence), flags: flags))
         }
         guard !events.isEmpty else { return }
+        // 先取得回呼鎖再讀回呼指標，並持有到回呼返回：setCallback 因此會等待進行中的回呼
+        callbackLock.lock()
+        defer { callbackLock.unlock() }
         let (callback, userData) = lock.withLock { () -> (MTKEventCallback?, UnsafeMutableRawPointer?) in
             for e in events { queue.push(e) }
             return (self.callback, callbackUserData)

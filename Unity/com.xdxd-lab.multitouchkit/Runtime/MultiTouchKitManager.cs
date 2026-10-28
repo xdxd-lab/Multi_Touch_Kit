@@ -35,6 +35,10 @@ namespace MultiTouchKit
         public TransportMode transport = TransportMode.Native;
         [Tooltip("Udp 模式監聽的埠")]
         public int udpPort = 7777;
+        [Tooltip("Udp 模式監聽的位址。空白 = 127.0.0.1（只接收本機）；接收其他電腦的 mtk-server 時填 0.0.0.0")]
+        public string udpBindAddress = "";
+        [Tooltip("Udp 模式：有觸點時超過此秒數沒有收到 mtk-server 的資料就全部 Cancelled（mtk-server 被強制結束等）；0 = 關閉")]
+        public float udpTimeout = 0.5f;
         [Tooltip("獨占觸控螢幕，系統不再把觸控當成單點滑鼠")]
         public bool exclusive = true;
         [Tooltip("只使用指定的 Vendor ID（0 = 不限）")]
@@ -76,6 +80,10 @@ namespace MultiTouchKit
         readonly List<MultiTouchTouch> m_Polled = new List<MultiTouchTouch>();
         IMultiTouchTransport m_Transport;
         int m_ThisFrameIndex = -1;
+#if MTK_INPUT_SYSTEM
+        // Input System 的虛擬裝置是靜態共用的：只由啟用它的 Manager 停用
+        bool m_BridgeEnabled;
+#endif
 
         void Awake()
         {
@@ -96,9 +104,16 @@ namespace MultiTouchKit
             StartTransport();
         }
 
-        void OnDisable() => StopTransport();
+        // 重複的 Manager（例如第二個場景也放了一個）被 Destroy 時也會收到 OnDisable，不可停掉正在使用的那個
+        void OnDisable()
+        {
+            if (Instance == this) StopTransport();
+        }
 
-        void OnApplicationQuit() => StopTransport();
+        void OnApplicationQuit()
+        {
+            if (Instance == this) StopTransport();
+        }
 
         // 回到前景時與原生端對帳：失焦期間若 Update 暫停，可能錯過事件
         void OnApplicationFocus(bool hasFocus)
@@ -137,7 +152,7 @@ namespace MultiTouchKit
             if (m_Transport != null) return;
             IMultiTouchTransport created = transport == TransportMode.Native
                 ? new NativeTransport(exclusive, vendorId, productId, false, logNativeMessages, staleTouchTimeout)
-                : (IMultiTouchTransport)new UdpTransport(udpPort);
+                : (IMultiTouchTransport)new UdpTransport(udpPort, false, udpBindAddress, udpTimeout);
             if (!created.Start())
             {
                 created.Dispose();
@@ -150,6 +165,7 @@ namespace MultiTouchKit
             if (feedInputSystem)
             {
                 MultiTouchInputSystemBridge.Enable();
+                m_BridgeEnabled = true;
                 // 在 Input System 處理事件之前取出觸控，遊戲當幀就能讀到
                 InputSystem.onBeforeUpdate += PollNow;
             }
@@ -178,7 +194,11 @@ namespace MultiTouchKit
                 }
             }
 #if MTK_INPUT_SYSTEM
-            MultiTouchInputSystemBridge.Disable();
+            if (m_BridgeEnabled)
+            {
+                MultiTouchInputSystemBridge.Disable();
+                m_BridgeEnabled = false;
+            }
 #endif
         }
 
