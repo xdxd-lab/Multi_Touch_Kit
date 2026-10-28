@@ -11,7 +11,7 @@
 | 2 `perf/hot-path` | 0dd0fcc | golden 測試先行，B1–B7、B11、C9 | mtk-server 輸出全開：rusage 3.7% → 1.6%（−57%），p2 取樣 3.12% → 0.93%；JSON 單次 6.4 → 0.48 µs、TUIO 4.7 → 0.38 µs（3 指）；輸出逐位元組不變；0 leaks。測試 → 109 |
 | 3 `perf/unity-gc` | 3795fa5 | B8–B10、Python 範例行緩衝 | UdpTransport 每個封包配置 2.1／4.6 KB → 0 B（3／10 指）；專用 JSON 解析器與 System.Text.Json 差分測試 0 不一致；新增 `GetActiveTouches`、`scripts/test-unity-offline.sh` |
 | 4 `refactor/structure` | 2c08f5d | C1–C8、C10 | 檔案拆分、HID 型別 internal／佇列 package、`TouchSource`、`CommandLineArguments`（錯誤參數 exit 2）、`Locked<Value>`、版本一致性測試；C 匯出符號不變。測試 → 111 |
-| 5 `docs/comments` | — | D1–D8、文件狀態 | 公開 API 文件註解（Swift `///`、C# XML doc，`-doc` 編譯檢查）、複雜演算法的「為什麼」、狀態更新；順帶修正 mtk-viewer 背景啟動時 SIGINT 無效（既有行為），新增 `scripts/check-signals.sh` |
+| 5 `docs/comments` | `03a4512` | D1–D8、文件狀態 | 公開 API 文件註解（Swift `///`、C# XML doc，`-doc` 編譯檢查）、複雜演算法的「為什麼」、狀態更新；順帶修正 mtk-viewer 背景啟動時 SIGINT 無效（既有行為），新增 `scripts/check-signals.sh` |
 
 未做（依審查判斷）：B12（手勢辨識器的配置，量很小）、`DisplaySelector` 的 Hashable 只比較 criteria（會改變相等語意）。
 
