@@ -129,6 +129,11 @@ struct ServerOptions {
 struct ServerCommand {
     static func main() {
         setvbuf(stdout, nil, _IOLBF, 0)
+        // 子程序檢查授權（PermissionWatcher）：只輸出結果，不啟動任何東西
+        if CommandLine.arguments.dropFirst().first == Permissions.checkOption {
+            print(Permissions.report)
+            exit(0)
+        }
         let options = ServerOptions.parse(Array(CommandLine.arguments.dropFirst()))
         if options.releaseButtons {
             let pressed = CGEventGestureOutput.systemButtonsPressed
@@ -214,19 +219,18 @@ final class ServerRuntime: @unchecked Sendable {
         if let manager {
             manager.logHandler = { print($0) }
             manager.deviceHandler = { [self] in handle($0) }
-            // 主動請求「輸入監控」：系統立即把程式列入清單並詢問（否則要等到開啟裝置時才請求）。
-            // 授權前開啟裝置會失敗，打開開關後由 watcher 重新開啟
+            // 主動請求「輸入監控」：系統立即把程式列入清單並詢問（否則要等到開啟裝置時才請求）
             Permissions.requestInputMonitoring()
-            let watcher = PermissionWatcher(queue: queue, needsAccessibility: gesturesNeedAccessibility) { [weak manager] in
-                // 只在授權前開啟失敗（沒有任何裝置）時重開：裝置已在運作時重開會取消正在觸碰的手指
-                guard let manager, manager.connectedDevices.isEmpty else { return }
-                manager.stop()
-                try? manager.start()
+        } else {
+            print("使用模擬觸控來源")
+        }
+        // 模擬來源不需要授權；MTK_TEST_SIMULATE_GRANT 時也啟動，用來測試重新啟動的流程
+        if manager != nil || PermissionWatcher.simulateGrant {
+            let watcher = PermissionWatcher(needsAccessibility: gesturesNeedAccessibility) { [self] granted in
+                queue.async { [self] in applyGrantedPermissions(granted) }
             }
             watcher.start()
             permissionWatcher = watcher
-        } else {
-            print("使用模擬觸控來源")
         }
         do {
             try source.start()
@@ -247,16 +251,35 @@ final class ServerRuntime: @unchecked Sendable {
         for sig in [SIGINT, SIGTERM, SIGHUP, SIGQUIT] {
             signal(sig, SIG_IGN)
             let signalSource = DispatchSource.makeSignalSource(signal: sig, queue: queue)
-            signalSource.setEventHandler { [self] in
-                gestures?.shutdown()
-                outputs.webSocket?.cancel()
-                source.stop()
-                print("已停止")
-                exit(0)
-            }
+            signalSource.setEventHandler { [self] in terminate() }
             signalSource.resume()
             signalSources.append(signalSource)
         }
+    }
+
+    /// 正常收尾後結束（在觸控來源的佇列上）：放開手勢按住的滑鼠鍵、釋放裝置
+    private func terminate(_ message: String = "已停止") -> Never {
+        gestures?.shutdown()
+        outputs.webSocket?.cancel()
+        source.stop()
+        print(message)
+        exit(0)
+    }
+
+    /// 使用者打開了授權開關（在觸控來源的佇列上）。授權在同一程序內不會生效（見 Permissions），所以：
+    /// - 由 LaunchAgent 啟動：結束程序，launchd（KeepAlive）以新的程序重新啟動
+    /// - 從終端機執行：重開觸控裝置（盡力而為），並提示必要時手動重新啟動
+    private func applyGrantedPermissions(_ granted: PermissionWatcher.Granted) {
+        let names = [granted.inputMonitoring ? "輸入監控" : nil, granted.accessibility ? "輔助使用" : nil].compactMap { $0 }
+        print("授權：已取得「\(names.joined(separator: "」「"))」")
+        if Permissions.launchedByLaunchd {
+            terminate("授權：同一程序內不會生效，結束並由 LaunchAgent 重新啟動")
+        }
+        if granted.inputMonitoring, let manager {
+            manager.stop()
+            try? manager.start()
+        }
+        print("授權：若滑鼠介面仍無法一併獨占或手勢沒有作用，請重新啟動 mtk-server")
     }
 
     private func startGestures() {
