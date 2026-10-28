@@ -6,30 +6,106 @@
 <title>MultiTouchKit 網頁範例</title>
 <style>
   html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 16px -apple-system, "PingFang TC", sans-serif; overflow: hidden; }
-  canvas { display: block; width: 100vw; height: 100vh; }
+  /* 用 fixed＋inset 而不是 100vw／100vh：Safari 的 vh 可能不等於實際內容區高度，捲軸設為「永遠顯示」時 100vw 也會比內容區寬 */
+  canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; }
   #hud { position: fixed; left: 16px; top: 12px; white-space: pre; pointer-events: none; }
+  #fullscreen { position: fixed; right: 16px; top: 12px; font: inherit; color: #ddd; background: #2a2a2a; border: 1px solid #555; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  :fullscreen #fullscreen, :-webkit-full-screen #fullscreen { display: none; }
 </style>
 </head>
 <body>
 <canvas id="view"></canvas>
 <div id="hud">連線中…</div>
+<button id="fullscreen">全螢幕（F）</button>
 <script>
 // 連線 mtk-server 的 WebSocket，畫出每根手指。網址可用 ?ws=ws://主機:埠 覆寫。
-// 座標 x、y 是 0..1、原點左上，直接乘上畫布尺寸即可（全螢幕顯示在觸控螢幕上時位置最準）。
-const url = new URLSearchParams(location.search).get("ws") || "ws://127.0.0.1:7778";
+//
+// 座標換算：觸點的 x、y 是「整片觸控面板」的 0..1（原點左上）。網頁的內容區通常不等於整片面板：
+// 視窗模式時只佔一部分；Safari 全螢幕（綠色按鈕）時頂部的工具列／分頁列仍會佔用。
+// 直接乘上畫布尺寸就會出現系統性偏差（越遠離內容區與面板重疊的邊，偏得越多）。所以：
+//   1. 以 Fullscreen API 全螢幕時（按 F 或右上角按鈕），內容區就是整個螢幕：x × 寬、y × 高。
+//   2. 否則用 mtk-server hello 中觸控螢幕的位置（display.bounds，全域座標，單位為點＝CSS px）
+//      與視窗在螢幕上的位置，換算出觸點在內容區中的位置（與 Unity 的 KeyWindow 模式相同）。
+//   3. 沒有顯示器資訊（舊版 mtk-server）時退回 1. 的算法。
+// 按 D 顯示診斷資訊與校正十字（觸碰十字中心，圓點應落在十字上）。頁面縮放請維持 100%。
+const params = new URLSearchParams(location.search);
+const url = params.get("ws") || "ws://127.0.0.1:7778";
 const canvas = document.getElementById("view");
 const ctx = canvas.getContext("2d");
 const hud = document.getElementById("hud");
-const touches = new Map();   // id → {x, y}
+const touches = new Map();   // id → {x, y}（面板正規化座標）
 const ripples = [];          // 按下時的擴散圈
-let maxTouches = 0, taps = 0, frames = 0, devices = [];
+let maxTouches = 0, taps = 0, frames = 0, devices = [], display = null;
+let debug = params.has("debug");
 
-function resize() {
-  canvas.width = innerWidth * devicePixelRatio;
-  canvas.height = innerHeight * devicePixelRatio;
+// MARK: - 座標換算（純函式，Tests/WebExample 以 jsc 測試）
+
+/**
+ * 面板正規化座標 → 內容區（viewport）的 CSS px。
+ * @param {{x:number, y:number}} touch 0..1，原點在觸控面板左上
+ * @param {{fullscreen:boolean, screenX:number, screenY:number, outerWidth:number, outerHeight:number,
+ *          innerWidth:number, innerHeight:number}} win 視窗幾何（window 上的同名屬性）
+ * @param {number[]|null} bounds 觸控螢幕的 [x, y, 寬, 高]（全域座標，點）；null 時視為內容區即面板
+ * @returns {{x:number, y:number, mode:string}}
+ */
+function mapTouch(touch, win, bounds) {
+  if (win.fullscreen || !bounds) {
+    return { x: touch.x * win.innerWidth, y: touch.y * win.innerHeight, mode: win.fullscreen ? "fullscreen" : "viewport" };
+  }
+  const v = viewportOnScreen(win);
+  const [bx, by, bw, bh] = bounds;
+  return { x: bx + touch.x * bw - v.left, y: by + touch.y * bh - v.top, mode: "window" };
 }
-addEventListener("resize", resize);
-resize();
+
+/**
+ * 內容區左上角的全域座標。macOS 的視窗沒有左右與下方邊框，外框與內容區的高度差都是上方的標題列／工具列。
+ * 開發者工具停靠在側邊或下方、或頁面縮放不是 100% 時這個假設不成立（見 geometryWarning）。
+ */
+function viewportOnScreen(win) {
+  return { left: win.screenX + (win.outerWidth - win.innerWidth) / 2, top: win.screenY + (win.outerHeight - win.innerHeight) };
+}
+
+/** 換算可能不準的情況；沒有問題時回傳空字串 */
+function geometryWarning(win, bounds, screenSize) {
+  if (!bounds) return "mtk-server 沒有提供觸控螢幕位置（舊版？），假設內容區就是整片面板";
+  if (win.fullscreen && (Math.abs(screenSize.width - bounds[2]) > 1 || Math.abs(screenSize.height - bounds[3]) > 1)) {
+    return `全螢幕所在的螢幕（${screenSize.width}x${screenSize.height}）與觸控螢幕（${bounds[2]}x${bounds[3]}）大小不同：請把視窗移到觸控螢幕再全螢幕`;
+  }
+  if (!win.fullscreen && Math.abs(win.outerWidth - win.innerWidth) > 2) {
+    return "視窗寬度與內容區寬度不同（頁面縮放不是 100%，或開發者工具停靠在側邊），位置可能有偏差";
+  }
+  return "";
+}
+
+// MARK: - 瀏覽器
+
+function windowGeometry() {
+  return {
+    fullscreen: !!(document.fullscreenElement || document.webkitFullscreenElement),
+    screenX, screenY, outerWidth, outerHeight, innerWidth, innerHeight,
+  };
+}
+
+function toggleFullscreen() {
+  const root = document.documentElement;
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  } else {
+    (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
+  }
+}
+document.getElementById("fullscreen").addEventListener("click", toggleFullscreen);
+addEventListener("keydown", (e) => {
+  if (e.key === "f" || e.key === "F") toggleFullscreen();
+  if (e.key === "d" || e.key === "D") debug = !debug;
+});
+
+// 畫布的實際像素每幀對齊內容區：全螢幕切換、移到不同 devicePixelRatio 的螢幕時不一定會觸發 resize
+function syncCanvasSize() {
+  const s = devicePixelRatio, w = Math.round(canvas.clientWidth * s), h = Math.round(canvas.clientHeight * s);
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  ctx.setTransform(s, 0, 0, s, 0, 0); // 之後都以 CSS px 繪製
+}
 
 function connect() {
   const ws = new WebSocket(url);
@@ -37,7 +113,9 @@ function connect() {
   ws.onclose = () => { hud.textContent = `連線中斷，2 秒後重試（${url}）`; setTimeout(connect, 2000); };
   ws.onmessage = (event) => {
     const msg = JSON.parse(event.data);
-    if (msg.type === "hello") devices = msg.devices;
+    if (msg.type === "hello") { devices = msg.devices; display = msg.display || null; }
+    // 觸控螢幕晚於 mtk-server 接上、或顯示器重新排列時，對應的顯示器會改變
+    if (msg.type === "display") display = msg.display || null;
     if (msg.type === "device") devices = devices.filter(d => d.id !== msg.device.id).concat(msg.event === "removed" ? [] : [msg.device]);
     if (msg.type !== "frame") return;
     frames++;
@@ -53,33 +131,66 @@ connect();
 
 function hue(id) { return (id * 37) % 360; }
 
+function drawCalibration(win, bounds) {
+  ctx.strokeStyle = "rgba(255,255,255,0.6)";
+  ctx.lineWidth = 1;
+  for (const y of [0.1, 0.5, 0.9]) {
+    for (const x of [0.1, 0.5, 0.9]) {
+      const p = mapTouch({ x, y }, win, bounds);
+      ctx.beginPath();
+      ctx.moveTo(p.x - 20, p.y); ctx.lineTo(p.x + 20, p.y);
+      ctx.moveTo(p.x, p.y - 20); ctx.lineTo(p.x, p.y + 20);
+      ctx.stroke();
+    }
+  }
+}
+
 function draw(now) {
-  const w = canvas.width, h = canvas.height, s = devicePixelRatio;
+  syncCanvasSize();
+  const win = windowGeometry();
+  const bounds = display ? display.bounds : null;
   ctx.fillStyle = "#111";
-  ctx.fillRect(0, 0, w, h);
+  ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+  if (debug) drawCalibration(win, bounds);
   for (let i = ripples.length - 1; i >= 0; i--) {
     const r = ripples[i], p = (now - r.start) / 350;
     if (p >= 1) { ripples.splice(i, 1); continue; }
+    const at = mapTouch(r, win, bounds);
     ctx.strokeStyle = `hsla(${hue(r.id)}, 80%, 60%, ${1 - p})`;
-    ctx.lineWidth = 4 * s;
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(r.x * w, r.y * h, (40 + p * 80) * s, 0, Math.PI * 2);
+    ctx.arc(at.x, at.y, 40 + p * 80, 0, Math.PI * 2);
     ctx.stroke();
   }
-  ctx.font = `bold ${18 * s}px ui-monospace, monospace`;
+  ctx.font = "bold 18px ui-monospace, monospace";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  let mode = "";
   for (const [id, t] of touches) {
+    const at = mapTouch(t, win, bounds);
+    mode = at.mode;
     ctx.fillStyle = `hsla(${hue(id)}, 70%, 55%, 0.85)`;
     ctx.beginPath();
-    ctx.arc(t.x * w, t.y * h, 45 * s, 0, Math.PI * 2);
+    ctx.arc(at.x, at.y, 45, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = "#fff";
-    ctx.fillText(id, t.x * w, t.y * h);
+    ctx.fillText(id, at.x, at.y);
   }
   const names = devices.map(d => `${d.product}（最多 ${d.maxContacts} 點）`).join("、") || "無";
   if (hud.textContent.startsWith("已連線") || frames) {
-    hud.textContent = `${url}\n裝置：${names}\n觸點 ${touches.size}　最多 ${maxTouches}　按下 ${taps}`;
+    let text = `${url}\n裝置：${names}\n觸點 ${touches.size}　最多 ${maxTouches}　按下 ${taps}`;
+    const warning = geometryWarning(win, bounds, screen);
+    if (warning) text += `\n⚠ ${warning}`;
+    if (debug) {
+      const v = viewportOnScreen(win);
+      text += `\n— 診斷（D 關閉）—\n換算：${mode || mapTouch({ x: 0, y: 0 }, win, bounds).mode}　全螢幕：${win.fullscreen}`
+        + `\n觸控螢幕 bounds：${bounds ? bounds.join(", ") : "無"}`
+        + `\n視窗 screenX/Y：${win.screenX}, ${win.screenY}　outer：${win.outerWidth}x${win.outerHeight}　inner：${win.innerWidth}x${win.innerHeight}`
+        + `\n內容區左上：${v.left}, ${v.top}　screen：${screen.width}x${screen.height}　devicePixelRatio：${devicePixelRatio}`;
+      const first = touches.values().next().value;
+      if (first) text += `\n第一個觸點：x=${first.x.toFixed(4)} y=${first.y.toFixed(4)}`;
+    }
+    hud.textContent = text;
   }
   requestAnimationFrame(draw);
 }

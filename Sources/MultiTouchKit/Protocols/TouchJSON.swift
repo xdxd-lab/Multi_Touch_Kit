@@ -81,6 +81,12 @@ public enum TouchJSON {
         return s + "}"
     }
 
+    /// `type: display` 訊息：觸控螢幕對應的顯示器改變了（觸控螢幕晚於 mtk-server 接上、顯示器重新排列等）。
+    /// 內容與 hello 的 `display` 欄位相同；找不到顯示器時為 null
+    public static func display(_ display: DisplayInfo?) -> String {
+        "{\"type\":\"display\",\"v\":\(protocolVersion),\"display\":" + (display.map(displayObject) ?? "null") + "}"
+    }
+
     /// 觸控螢幕所在的顯示器。bounds 為全域 Quartz 座標（點，原點在主螢幕左上、y 向下）
     public static func displayObject(_ d: DisplayInfo) -> String {
         var s = "{\"id\":\(d.id)"

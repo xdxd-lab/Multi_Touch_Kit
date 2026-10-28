@@ -87,6 +87,7 @@ swift build                       # 建置全部
 ./scripts/test.sh                 # 單元測試（只有 Command Line Tools 時不要直接用 swift test，會找不到 Testing 模組）
 ./scripts/build-c-example.sh 5    # 編譯並執行 C 範例 5 秒
 ./scripts/test-unity-offline.sh   # 不開 Unity Editor 檢查 C#：編譯套件與範例、執行 Udp 傳輸／JSON 解析器測試
+./scripts/test-web-example.sh     # 網頁範例的位置換算與頁面腳本測試（macOS 內建的 JavaScriptCore）
 ./scripts/check-signals.sh        # 三個執行檔收到 SIGINT／SIGTERM／SIGHUP 時都正常收尾後結束（含背景啟動的情況）
 ./scripts/build-unity-plugin.sh   # 重建 Unity 外掛（改了 Sources/MultiTouchKit 或 MultiTouchKitC 後要執行並 commit）
 MTK_BENCH=1 ./scripts/test.sh -c release --filter HotPathBenchmarks   # 熱路徑微基準（平常略過）

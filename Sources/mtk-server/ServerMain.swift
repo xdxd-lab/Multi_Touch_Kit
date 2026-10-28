@@ -307,6 +307,9 @@ final class ServerRuntime: @unchecked Sendable {
         _display.wrapped = match?.display
         gestures?.displayID = match?.display.id
         guard match?.display != previous || previous == nil else { return }
+        // 已連線的 WebSocket 用戶端只在連線時收到 hello：顯示器改變時另外通知（網頁範例用它換算觸點位置）
+        let message = TouchJSON.display(match?.display)
+        queue.async { [self] in outputs.webSocket?.broadcast(message) }
         if let match {
             print("觸控對應顯示器：\(match.display)（\(match.note)）")
         } else {
