@@ -41,12 +41,11 @@ public final class MultiTouchManager: @unchecked Sendable {
     /// HID 事件與所有 handler 執行的佇列
     public let queue: DispatchQueue
 
-    private let lock = NSLock()
-    private var _frameHandler: (@Sendable (TouchFrame) -> Void)?
-    private var _deviceHandler: (@Sendable (DeviceEvent) -> Void)?
-    private var _logHandler: (@Sendable (String) -> Void)?
-    private var _devices: [MultiTouchDeviceInfo] = []
-    private var _isRunning = false
+    private let _frameHandler = Locked<(@Sendable (TouchFrame) -> Void)?>(nil)
+    private let _deviceHandler = Locked<(@Sendable (DeviceEvent) -> Void)?>(nil)
+    private let _logHandler = Locked<(@Sendable (String) -> Void)?>(nil)
+    /// 裝置清單與執行狀態一起更新
+    private let published = Locked((devices: [MultiTouchDeviceInfo](), isRunning: false))
 
     // 以下狀態只在 queue 上存取
     private let queueKey = DispatchSpecificKey<UInt8>()
@@ -79,26 +78,26 @@ public final class MultiTouchManager: @unchecked Sendable {
 
     /// 每個 frame 呼叫一次（在 `queue` 上）
     public var frameHandler: (@Sendable (TouchFrame) -> Void)? {
-        get { lock.withLock { _frameHandler } }
-        set { lock.withLock { _frameHandler = newValue } }
+        get { _frameHandler.wrapped }
+        set { _frameHandler.wrapped = newValue }
     }
 
     /// 裝置加入、移除、重新初始化時呼叫（在 `queue` 上）
     public var deviceHandler: (@Sendable (DeviceEvent) -> Void)? {
-        get { lock.withLock { _deviceHandler } }
-        set { lock.withLock { _deviceHandler = newValue } }
+        get { _deviceHandler.wrapped }
+        set { _deviceHandler.wrapped = newValue }
     }
 
     /// 診斷訊息（在 `queue` 上）
     public var logHandler: (@Sendable (String) -> Void)? {
-        get { lock.withLock { _logHandler } }
-        set { lock.withLock { _logHandler = newValue } }
+        get { _logHandler.wrapped }
+        set { _logHandler.wrapped = newValue }
     }
 
     /// 目前已開啟的裝置（任何執行緒皆可讀取）
-    public var connectedDevices: [MultiTouchDeviceInfo] { lock.withLock { _devices } }
+    public var connectedDevices: [MultiTouchDeviceInfo] { published.wrapped.devices }
 
-    public var isRunning: Bool { lock.withLock { _isRunning } }
+    public var isRunning: Bool { published.wrapped.isRunning }
 
     public func start() throws {
         try onQueue {
@@ -121,7 +120,7 @@ public final class MultiTouchManager: @unchecked Sendable {
             }
             notifyPort = port
             matchIterator = iterator
-            lock.withLock { _isRunning = true }
+            published.withLock { $0.isRunning = true }
             servicesAppeared(iterator)
             power = PowerObserver(queue: queue) { [weak self] in
                 // 喚醒後裝置可能還沒準備好，稍等再初始化
@@ -168,10 +167,7 @@ public final class MultiTouchManager: @unchecked Sendable {
             IONotificationPortDestroy(port)
             notifyPort = nil
         }
-        lock.withLock {
-            _devices = []
-            _isRunning = false
-        }
+        published.wrapped = ([], false)
     }
 
     private func servicesAppeared(_ iterator: io_iterator_t) {
@@ -294,7 +290,7 @@ public final class MultiTouchManager: @unchecked Sendable {
 
     private func publishDevices() {
         let list = devices.values.map(\.info).sorted { $0.id < $1.id }
-        lock.withLock { _devices = list }
+        published.withLock { $0.devices = list }
     }
 
     private func scheduleRetry() {

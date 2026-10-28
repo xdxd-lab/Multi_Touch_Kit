@@ -16,7 +16,7 @@ extension GestureOutput {
 
 /// 送出端記錄「目前按住／進行中」的狀態，並產生放開用的事件（純邏輯，可測）
 struct GestureOutputState: Sendable, Equatable {
-    var pressed: Set<MouseButtonKey> = []
+    var pressed: Set<MouseButton> = []
     var lastPoint: CGPoint?
     var scrolling = false
     var momentum = false
@@ -24,17 +24,14 @@ struct GestureOutputState: Sendable, Equatable {
     var rotating = false
     var swipe: SwipeAxis?
 
-    /// MouseButton 沒有 Hashable；用簡單的 key 記錄
-    enum MouseButtonKey: Sendable, Hashable { case left, right }
-
     var isEmpty: Bool { pressed.isEmpty && !scrolling && !momentum && !magnifying && !rotating && swipe == nil }
 
     mutating func record(_ e: GestureEvent) {
         switch e {
         case .pointer(let p): lastPoint = p
-        case .mouseDown(let b, let p, _): pressed.insert(b == .left ? .left : .right); lastPoint = p
+        case .mouseDown(let b, let p, _): pressed.insert(b); lastPoint = p
         case .mouseDragged(_, let p): lastPoint = p
-        case .mouseUp(let b, let p, _): pressed.remove(b == .left ? .left : .right); lastPoint = p
+        case .mouseUp(let b, let p, _): pressed.remove(b); lastPoint = p
         case .scroll(_, _, let ph): scrolling = ph == .began || ph == .changed
         case .momentum(_, _, let ph): momentum = ph != .ended
         case .magnify(_, let ph): magnifying = ph == .began || ph == .changed

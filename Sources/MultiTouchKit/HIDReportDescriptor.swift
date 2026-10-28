@@ -1,49 +1,49 @@
 import Foundation
 
 /// HID 報告的種類
-public enum HIDReportKind: Sendable, Hashable {
+enum HIDReportKind: Sendable, Hashable {
     case input
     case output
     case feature
 }
 
 /// 描述元中的一個 collection
-public struct HIDCollection: Sendable, Equatable {
+struct HIDCollection: Sendable, Equatable {
     /// 在整份描述元中的流水號，用來區分同 usage 的不同 collection（例如 10 個 Finger）
-    public var index: Int
+    var index: Int
     /// 0 = Physical、1 = Application、2 = Logical …
-    public var type: UInt8
-    public var usagePage: UInt16
-    public var usage: UInt16
+    var type: UInt8
+    var usagePage: UInt16
+    var usage: UInt16
 }
 
 /// 報告中的一個欄位（對應一個 usage）
-public struct HIDField: Sendable, Equatable {
-    public var kind: HIDReportKind
-    public var reportID: UInt8
-    public var usagePage: UInt16
-    public var usage: UInt16
+struct HIDField: Sendable, Equatable {
+    var kind: HIDReportKind
+    var reportID: UInt8
+    var usagePage: UInt16
+    var usage: UInt16
     /// 從 report 資料起點算起的位元位移（不含 report ID 位元組）
-    public var bitOffset: Int
-    public var bitSize: Int
-    public var logicalMin: Int64
-    public var logicalMax: Int64
-    public var physicalMin: Int64
-    public var physicalMax: Int64
-    public var unitExponent: Int8
-    public var unit: UInt32
-    public var isConstant: Bool
-    public var isVariable: Bool
-    public var isRelative: Bool
+    var bitOffset: Int
+    var bitSize: Int
+    var logicalMin: Int64
+    var logicalMax: Int64
+    var physicalMin: Int64
+    var physicalMax: Int64
+    var unitExponent: Int8
+    var unit: UInt32
+    var isConstant: Bool
+    var isVariable: Bool
+    var isRelative: Bool
     /// 由外到內的 collection 鏈
-    public var collectionPath: [HIDCollection]
+    var collectionPath: [HIDCollection]
 
-    public func isUsage(_ page: UInt16, _ usage: UInt16) -> Bool {
+    func isUsage(_ page: UInt16, _ usage: UInt16) -> Bool {
         usagePage == page && self.usage == usage
     }
 
     /// 讀取欄位值；`payload` 不含 report ID
-    public func value(in payload: UnsafeBufferPointer<UInt8>) -> Int64 {
+    func value(in payload: UnsafeBufferPointer<UInt8>) -> Int64 {
         guard bitSize > 0, bitSize <= 64 else { return 0 }
         var raw: UInt64 = 0
         for i in 0..<bitSize {
@@ -58,12 +58,12 @@ public struct HIDField: Sendable, Equatable {
         return Int64(bitPattern: raw)
     }
 
-    public func value(in payload: [UInt8]) -> Int64 {
+    func value(in payload: [UInt8]) -> Int64 {
         payload.withUnsafeBufferPointer { value(in: $0) }
     }
 
     /// 寫入欄位值；`payload` 不含 report ID
-    public func write(_ value: Int64, into payload: inout [UInt8]) {
+    func write(_ value: Int64, into payload: inout [UInt8]) {
         let raw = UInt64(bitPattern: value)
         for i in 0..<bitSize {
             let bit = bitOffset + i
@@ -79,14 +79,14 @@ public struct HIDField: Sendable, Equatable {
     }
 
     /// 依邏輯範圍正規化到 0...1
-    public func normalized(_ value: Int64) -> Double {
+    func normalized(_ value: Int64) -> Double {
         let range = Double(logicalMax - logicalMin)
         guard range > 0 else { return 0 }
         return min(max((Double(value) - Double(logicalMin)) / range, 0), 1)
     }
 
     /// 實體長度（公釐）；單位不是公分或英吋時回傳 nil
-    public var physicalLengthMillimeters: Double? {
+    var physicalLengthMillimeters: Double? {
         let span = Double(physicalMax - physicalMin)
         guard span > 0 else { return nil }
         let scaled = span * pow(10, Double(unitExponent))
@@ -98,22 +98,22 @@ public struct HIDField: Sendable, Equatable {
     }
 }
 
-public enum HIDDescriptorError: Error, Sendable {
+enum HIDDescriptorError: Error, Sendable {
     case truncated(offset: Int)
     /// Report Size／Report Count／欄位總數超過上限（畸形或惡意的描述元）
     case limitExceeded(offset: Int)
 }
 
 /// HID 報告描述元解析器（HID 1.11 §6.2.2），只處理觸控需要的項目
-public struct HIDReportDescriptor: Sendable {
+struct HIDReportDescriptor: Sendable {
     /// 描述元來自外部裝置，屬於不可信輸入：沒有上限時，一個 Report Count = 0xFFFFFFFF 就能配置數十億個欄位。
     /// 上限遠大於實際裝置所需（ILITEK 約 100 個欄位；廠商自訂的 feature report 最多數千位元組）
     static let maxReportSize = 256
     static let maxReportCount = 65_536
     static let maxFields = 100_000
 
-    public private(set) var fields: [HIDField] = []
-    public private(set) var usesReportIDs = false
+    private(set) var fields: [HIDField] = []
+    private(set) var usesReportIDs = false
     private var reportBits: [ReportKey: Int] = [:]
 
     private struct ReportKey: Hashable, Sendable {
@@ -136,15 +136,15 @@ public struct HIDReportDescriptor: Sendable {
         var reportCount = 0
     }
 
-    public var inputFields: [HIDField] { fields.filter { $0.kind == .input } }
-    public var featureFields: [HIDField] { fields.filter { $0.kind == .feature } }
+    var inputFields: [HIDField] { fields.filter { $0.kind == .input } }
+    var featureFields: [HIDField] { fields.filter { $0.kind == .feature } }
 
     /// 報告資料長度（位元組，不含 report ID）
-    public func reportByteCount(_ kind: HIDReportKind, id: UInt8) -> Int {
+    func reportByteCount(_ kind: HIDReportKind, id: UInt8) -> Int {
         ((reportBits[ReportKey(kind: kind, id: id)] ?? 0) + 7) / 8
     }
 
-    public init(bytes: [UInt8]) throws {
+    init(bytes: [UInt8]) throws {
         var g = Globals()
         var globalStack: [Globals] = []
         var usages: [(page: UInt16, usage: UInt16)] = []
@@ -262,4 +262,28 @@ public struct HIDReportDescriptor: Sendable {
             }
         }
     }
+}
+
+/// HID Usage 常數（只列出用到的）
+enum HIDUsage {
+    static let genericDesktopPage: UInt16 = 0x01
+    static let x: UInt16 = 0x30
+    static let y: UInt16 = 0x31
+    static let mouse: UInt16 = 0x02
+    static let pointer: UInt16 = 0x01
+
+    static let digitizerPage: UInt16 = 0x0D
+    static let touchScreen: UInt16 = 0x04
+    static let finger: UInt16 = 0x22
+    static let tipPressure: UInt16 = 0x30
+    static let inRange: UInt16 = 0x32
+    static let tipSwitch: UInt16 = 0x42
+    static let confidence: UInt16 = 0x47
+    static let width: UInt16 = 0x48
+    static let height: UInt16 = 0x49
+    static let contactIdentifier: UInt16 = 0x51
+    static let deviceMode: UInt16 = 0x52
+    static let contactCount: UInt16 = 0x54
+    static let contactCountMaximum: UInt16 = 0x55
+    static let scanTime: UInt16 = 0x56
 }
