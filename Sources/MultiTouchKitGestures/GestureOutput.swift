@@ -11,6 +11,7 @@ public protocol GestureOutput: AnyObject, Sendable {
 }
 
 extension GestureOutput {
+    /// 預設不做任何事（沒有記錄狀態的送出端）
     public func releaseAll() {}
 }
 
@@ -218,8 +219,10 @@ public final class LoggingGestureOutput: GestureOutput, @unchecked Sendable {
 
 /// 依序交給多個送出端（例如實際送出＋記錄）
 public final class CombinedGestureOutput: GestureOutput, @unchecked Sendable {
+    /// 依序呼叫的送出端
     public let outputs: [GestureOutput]
 
+    /// - Parameter outputs: 依序呼叫，例如 `[CGEventGestureOutput(), LoggingGestureOutput(label: "手勢") { print($0) }]`
     public init(_ outputs: [GestureOutput]) {
         self.outputs = outputs
     }
@@ -238,6 +241,7 @@ public final class CombinedGestureOutput: GestureOutput, @unchecked Sendable {
 /// - 點擊、拖曳、捲動、鍵盤：公開 API。
 /// - 縮放、旋轉、dock swipe：未公開的 gesture 事件欄位（macOS 26.2 驗證），macOS 更新後可能失效，見 docs/gestures.md。
 public final class CGEventGestureOutput: GestureOutput, @unchecked Sendable {
+    /// 三／四指滑動的送出方式
     public let swipeMode: SwipeMode
     private let source = CGEventSource(stateID: .hidSystemState)
     private var lastMouse: CGPoint?
@@ -245,6 +249,7 @@ public final class CGEventGestureOutput: GestureOutput, @unchecked Sendable {
     private var dockSwipe: (axis: SwipeAxis, offset: Double)?
     private var state = GestureOutputState()
 
+    /// - Parameter swipeMode: 預設 `.keys`（公開 API，macOS 更新後較不易失效）
     public init(swipeMode: SwipeMode = .keys) {
         self.swipeMode = swipeMode
     }
@@ -398,6 +403,7 @@ public final class CGEventGestureOutput: GestureOutput, @unchecked Sendable {
         }
     }
 
+    /// 未公開的欄位編號沒有對應的 case，但匯入的 C enum（CGEventField）的 init(rawValue:) 接受任何值，所以 force unwrap 不會失敗
     private func field(_ raw: UInt32) -> CGEventField { CGEventField(rawValue: raw)! }
 
     private func gesture(hidType: Int64, phase: GesturePhase, valueField: UInt32, value: Double) {

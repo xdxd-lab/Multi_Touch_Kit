@@ -15,6 +15,7 @@ namespace MultiTouchKit
     [AddComponentMenu("MultiTouchKit/MultiTouchKit Manager")]
     public sealed class MultiTouchKitManager : MonoBehaviour
     {
+        /// <summary>觸控資料的來源。</summary>
         public enum TransportMode
         {
             /// <summary>程序內直接讀取（最低延遲，只支援 macOS）</summary>
@@ -23,6 +24,7 @@ namespace MultiTouchKit
             Udp,
         }
 
+        /// <summary>正規化座標換算成 Unity 螢幕座標的方式。</summary>
         public enum ScreenMappingMode
         {
             /// <summary>假設遊戲全螢幕顯示在觸控螢幕上：正規化座標直接乘上 Screen 尺寸</summary>
@@ -31,37 +33,53 @@ namespace MultiTouchKit
             KeyWindow,
         }
 
+        /// <summary>觸控資料的來源；修改後呼叫 <see cref="Restart"/>。</summary>
         [Tooltip("Native：程序內直接讀取（最低延遲）；Udp：接收 mtk-server 的 UDP JSON")]
         public TransportMode transport = TransportMode.Native;
+        /// <summary>Udp 模式監聽的埠（mtk-server 預設送到 7777）。</summary>
         [Tooltip("Udp 模式監聽的埠")]
         public int udpPort = 7777;
+        /// <summary>Udp 模式監聽的位址；空白 = 127.0.0.1（只接收本機）。</summary>
         [Tooltip("Udp 模式監聽的位址。空白 = 127.0.0.1（只接收本機）；接收其他電腦的 mtk-server 時填 0.0.0.0")]
         public string udpBindAddress = "";
+        /// <summary>Udp 模式：有觸點時超過此秒數沒有資料就全部 Cancelled；0 = 關閉。</summary>
         [Tooltip("Udp 模式：有觸點時超過此秒數沒有收到 mtk-server 的資料就全部 Cancelled（mtk-server 被強制結束等）；0 = 關閉")]
         public float udpTimeout = 0.5f;
+        /// <summary>Native 模式：獨占觸控螢幕，系統游標不再跟著觸控移動。</summary>
         [Tooltip("獨占觸控螢幕，系統不再把觸控當成單點滑鼠")]
         public bool exclusive = true;
+        /// <summary>Native 模式：只使用指定 Vendor ID 的裝置（0 = 不限）。</summary>
         [Tooltip("只使用指定的 Vendor ID（0 = 不限）")]
         public int vendorId;
+        /// <summary>Native 模式：只使用指定 Product ID 的裝置（0 = 不限）。</summary>
         [Tooltip("只使用指定的 Product ID（0 = 不限）")]
         public int productId;
+        /// <summary>換算 <see cref="MultiTouchTouch.ScreenPosition"/> 的方式。</summary>
         public ScreenMappingMode screenMapping = ScreenMappingMode.FullScreen;
+        /// <summary>KeyWindow 模式：觸控螢幕所在的顯示器（格式見 docs/c-api.md）；空白 = 依面板尺寸自動挑選。</summary>
         [Tooltip("觸控螢幕所在的顯示器（KeyWindow 模式使用）。空白 = 自動依面板尺寸挑選；例：edid:6474:aa15、name:Sculptor,size:1920x1080")]
         public string displaySelector = "";
+        /// <summary>KeyWindow 模式：直接指定 CGDirectDisplayID；非 0 時優先於 <see cref="displaySelector"/>。</summary>
         [Tooltip("直接指定 CGDirectDisplayID（非 0 時優先於 displaySelector；重新接線後可能改變）")]
         public uint displayId;
+        /// <summary>Native 模式：觸點幾乎不動超過此秒數就以 Cancelled 取消（幽靈觸點）；0 = 關閉。</summary>
         [Tooltip("觸點幾乎不動超過此秒數就視為誤觸並以 Cancelled 取消（線材碰到面板等幽靈觸點）；0 = 關閉。" +
                  "長按音符超過 30 秒的遊戲請調大或關閉。Udp 模式由 mtk-server --stale-touch-timeout 決定")]
         public float staleTouchTimeout = 30f;
+        /// <summary>安裝 Input System 時，把觸控送進虛擬的 Touchscreen 裝置。</summary>
         [Tooltip("把觸控送進 Input System 的 Touchscreen 裝置")]
         public bool feedInputSystem = true;
+        /// <summary>把原生外掛的診斷訊息印到 Console。</summary>
         [Tooltip("把原生診斷訊息印到 Console")]
         public bool logNativeMessages = true;
+        /// <summary>切換場景時保留這個 Manager（只在它是根物件時有效）。</summary>
         public bool dontDestroyOnLoad = true;
+        /// <summary>Awake 時設定 Application.runInBackground，失去焦點時繼續接收觸控。</summary>
         [Tooltip("失去焦點時繼續執行（Application.runInBackground）。觸控螢幕通常是第二螢幕，使用者點主螢幕時遊戲仍要接收觸控；" +
                  "關閉時失焦期間的觸控會在回到前景時依目前狀態重新同步")]
         public bool runInBackground = true;
 
+        /// <summary>目前作用中的 Manager（場景中第一個；其他的會被移除）；沒有時為 null。</summary>
         public static MultiTouchKitManager Instance { get; private set; }
 
         /// <summary>每個觸控事件（began／moved／ended／cancelled）在主執行緒上觸發一次。</summary>
@@ -98,6 +116,7 @@ namespace MultiTouchKit
             public int Compare(MultiTouchTouch a, MultiTouchTouch b) => a.Id.CompareTo(b.Id);
         }
 
+        /// <summary>觸控來源已成功啟動。</summary>
         public bool IsRunning => m_Transport != null;
 
         readonly Dictionary<ulong, MultiTouchTouch> m_Active = new Dictionary<ulong, MultiTouchTouch>();

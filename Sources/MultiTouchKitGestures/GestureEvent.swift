@@ -32,6 +32,7 @@ public enum MomentumPhase: Sendable, Equatable, CustomStringConvertible {
     }
 }
 
+/// 合成的滑鼠鍵
 public enum MouseButton: Sendable, Hashable, CustomStringConvertible {
     case left
     case right
@@ -39,6 +40,7 @@ public enum MouseButton: Sendable, Hashable, CustomStringConvertible {
     public var description: String { self == .left ? "left" : "right" }
 }
 
+/// 多指滑動的方向軸（依開始時重心位移較大的方向決定，之後不變）
 public enum SwipeAxis: Sendable, Equatable, CustomStringConvertible {
     /// 左右：切換桌面（Space）／全螢幕 App
     case horizontal
@@ -87,11 +89,14 @@ public enum GestureEvent: Sendable, Equatable, CustomStringConvertible {
 
 /// 一根手指在某個 frame 的位置（已換算成全域 Quartz 座標）
 public struct GestureTouch: Sendable, Equatable {
+    /// 對應 `Touch.id`
     public var id: UInt64
+    /// 全域 Quartz 座標（點，原點在主螢幕左上、y 向下）
     public var position: CGPoint
     /// false 代表這個 frame 手指已離開（ended／cancelled）
     public var isDown: Bool
 
+    /// - Parameter isDown: false 代表這個 frame 手指已離開
     public init(id: UInt64, position: CGPoint, isDown: Bool = true) {
         self.id = id
         self.position = position

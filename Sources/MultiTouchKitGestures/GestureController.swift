@@ -10,7 +10,9 @@ import MultiTouchKit
 ///
 /// `handle(_:)` 必須在建構時指定的 `queue` 上呼叫（通常就是 MultiTouchManager.queue）。
 public final class GestureController: @unchecked Sendable {
+    /// 建立 controller 時的設定
     public struct Configuration: Sendable {
+        /// 手勢辨識參數
         public var recognizer = GestureRecognizer.Configuration()
         /// 這些 bundle ID 的 App 在前景時暫停手勢（手指落下當時判斷）
         public var excludedBundleIDs: Set<String> = []
@@ -19,11 +21,15 @@ public final class GestureController: @unchecked Sendable {
         /// 有手指在螢幕上、卻超過這麼久沒有收到任何觸控報告（裝置斷線、卡住）時，取消手勢並放開按鍵（秒）
         public var watchdogTimeout: Double = 2
 
+        /// 預設值：不排除任何 App、120 Hz 慣性計時、2 秒 watchdog
         public init() {}
     }
 
+    /// 建立時的設定
     public let configuration: Configuration
+    /// `handle`／`cancel`／`shutdown` 必須在這個佇列上呼叫；慣性與 watchdog 的計時器也在這裡執行
     public let queue: DispatchQueue
+    /// 手勢事件的送出端
     public let output: GestureOutput
     /// 診斷訊息（在 `queue` 或主執行緒上呼叫）；任何執行緒皆可設定
     public var logHandler: (@Sendable (String) -> Void)? {
@@ -47,6 +53,9 @@ public final class GestureController: @unchecked Sendable {
     private var lastFrameTime = 0.0
     private var stopped = false
 
+    /// - Parameters:
+    ///   - queue: 觸控來源的佇列（通常是 `MultiTouchManager.queue`）
+    ///   - output: 送出端，例如 `CGEventGestureOutput` 或 dry-run 用的 `LoggingGestureOutput`
     public init(configuration: Configuration = .init(), queue: DispatchQueue, output: GestureOutput) {
         self.configuration = configuration
         self.queue = queue
@@ -104,6 +113,8 @@ public final class GestureController: @unchecked Sendable {
 
     // MARK: - 輸入（在 queue 上）
 
+    /// 處理一個觸控 frame（在 `queue` 上）：換算到觸控螢幕的全域座標、辨識並送出事件。
+    /// `displayID` 為 nil（找不到顯示器）時只追蹤手指、不送出事件
     public func handle(_ frame: TouchFrame) {
         guard !stopped else { return }
         lastFrameTime = Double(MultiTouchClock.now()) / 1e9

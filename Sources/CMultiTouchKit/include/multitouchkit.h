@@ -86,16 +86,21 @@ typedef struct MTKDeviceInfo {
  * 回呼內可以呼叫 mtk_set_event_callback（立即生效），但不可呼叫 mtk_start／mtk_stop（可能死結）。 */
 typedef void (*MTKEventCallback)(const MTKTouchEvent *events, int32_t count, void *user_data);
 
+/* 程式庫的 MTK_API_VERSION：與編譯時標頭的 MTK_API_VERSION 不同時，結構定義可能不相容，請勿使用。 */
 int32_t mtk_api_version(void);
+/* 程式庫版本字串（例如 "0.1.0"）。靜態字串，不要釋放。 */
 const char *mtk_version(void);
 
+/* 填入預設設定（含 struct_size）。請先呼叫它再修改需要的欄位，未來新增的欄位才會有正確的預設值。 */
 void mtk_default_config(MTKConfig *config);
 
 /* 開始偵測與讀取。已在執行時會先停止再以新設定重新開始。config 為 NULL 時使用預設值；
  * config->struct_size 小於本版本的 sizeof(MTKConfig) 時回傳 MTK_ERR_INVALID_ARGUMENT。
  * mtk_start／mtk_stop 可從任何執行緒呼叫，彼此會序列化。 */
 int32_t mtk_start(const MTKConfig *config);
+/* 停止並釋放裝置；仍在螢幕上的觸點以 cancelled 放入佇列（與回呼）。未執行時不做任何事。 */
 void mtk_stop(void);
+/* 1 = 已 mtk_start 且尚未 mtk_stop（不代表已有裝置，見 mtk_device_count）。 */
 int32_t mtk_is_running(void);
 
 /* 取出佇列中的事件（依時間順序），回傳取出的數量；可在任何執行緒呼叫。 */
@@ -112,7 +117,9 @@ void mtk_request_resync(void);
  * 可以立即釋放舊的 user_data。 */
 void mtk_set_event_callback(MTKEventCallback callback, void *user_data);
 
+/* 目前開啟的觸控螢幕數；裝置插拔時會改變。 */
 int32_t mtk_device_count(void);
+/* 第 index 個裝置（0 起算）的資訊。info 為 NULL 回傳 MTK_ERR_INVALID_ARGUMENT，超出範圍回傳 MTK_ERR_OUT_OF_RANGE。 */
 int32_t mtk_get_device_info(int32_t index, MTKDeviceInfo *info);
 
 /* 取出一則診斷訊息（UTF-8），回傳寫入的位元組數（不含結尾 0），沒有訊息時回傳 0。 */

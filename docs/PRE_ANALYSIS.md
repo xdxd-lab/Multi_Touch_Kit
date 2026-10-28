@@ -52,23 +52,28 @@ macOS 限制：App 拿不到觸控螢幕觸點，觸控板觸點也無法偽造�
 
 ## 5. 階段性成果（2026-10-25，已 commit 為 `main` 基線）
 
+> 本節是前期（2026-10-25～28）的紀錄，保留原貌供追溯，「狀態」欄已補上後續結果。目前的使用方式見 README 與 `docs/`，
+> 2026-10 程式碼審查與 5 批改善見 [reviews/2026-10-code-review.md](reviews/2026-10-code-review.md)。
+
 | 項目 | 狀態 |
 |---|---|
 | `MultiTouchKit` Swift 核心（HID 描述子解析、Max Contacts feature、獨占含兄弟介面、熱插拔、睡眠喚醒、時鐘與座標換算） | 完成，`swift build` 通過、無警告 |
-| 單元測試（以實機擷取資料為 fixture） | 13 項通過（需用 `scripts/test.sh`，直接 `swift test` 會找不到 Testing 模組） |
+| 單元測試（以實機擷取資料為 fixture） | 13 項通過（需用 `scripts/test.sh`，直接 `swift test` 會找不到 Testing 模組）。**後續**：Q1 後為 111 項，另有 Unity 離線測試 `scripts/test-unity-offline.sh` |
 | `MultiTouchKitC` C ABI（14 個匯出函式）＋ `Examples/c/basic.c` | 完成，實機驗證：抓到裝置、獨占兩介面、讀到最大觸點數 10、struct 大小與標頭一致 |
 | `mtk-server`（UDP／WebSocket／TUIO）、`mtk-probe`、`mtk-viewer` | 完成；模擬觸控下 3 秒 376 frame、8.00 ms 間隔，三種輸出一致 |
 | LaunchAgent 安裝／移除腳本 | 2026-10-28 以 `--simulate` 驗證安裝、launchd 執行中、UDP 收到資料、移除乾淨；實機觸控常駐待使用者確認「輸入監控」權限 |
 | Python（UDP／WS／TUIO／ctypes）與網頁範例 | Python 四個範例 2026-10-28 驗證通過（UDP／WS／TUIO 搭配 `--simulate`；ctypes 開啟實機）；網頁範例未在瀏覽器驗證 |
-| Unity 套件 `com.xdxd-lab.multitouchkit` 與 universal `.bundle`（arm64＋x86_64） | 已寫並建置；**本機尚未安裝 Unity，未在 Unity 內驗證** |
+| Unity 套件 `com.xdxd-lab.multitouchkit` 與 universal `.bundle`（arm64＋x86_64） | 已寫並建置；當時本機尚未安裝 Unity。**後續**：2026-10-28 於 Unity 6000.3.27f1 實機驗證 10 點、失焦與誤觸（見 `docs/unity.md` 狀態） |
 | Python ctypes 載入 `.bundle` 驗證 | 2026-10-28 通過：arm64 與 x86_64（Rosetta）都能載入、獨占 ILITEK、讀到最大觸點數 10。前次中斷原因：`build-unity-plugin.sh` 最後以 x86_64 建置，`.build/release` 被指向 x86_64，ctypes 預設載入失敗（已修正） |
 | README／`docs/` 使用說明 | 2026-10-28 完成：README、`docs/swift-package.md`、`c-api.md`、`server-protocol.md`、`unity.md` |
 | 觸控螢幕對應顯示器 | 2026-10-28 新增 `DisplaySelector`／`DisplayLocator`（auto 依面板實體尺寸、EDID、名稱＋解析度等），C API `mtk_set_display`、`--display`、Unity `displaySelector`；實機 auto 正確選到 MF156LR（EDID `6474:aa15`），未經實際觸碰確認位置 |
-| 系統層手勢合成 | 2026-10-28 實作於 `feat/gestures`：`MultiTouchKitGestures`＋`mtk-server --gestures`；辨識單元測試與 `--simulate-pattern gestures` dry-run 通過，事件編碼以測試視窗驗證；待使用者實機觸碰測試（見 docs/gestures.md） |
+| 系統層手勢合成 | 2026-10-28 實作於 `feat/gestures`：`MultiTouchKitGestures`＋`mtk-server --gestures`；辨識單元測試與 `--simulate-pattern gestures` dry-run 通過，事件編碼以測試視窗驗證。**後續**：已合併 main，實機三輪回饋調整後 Finder 等 App 操作良好（見 docs/gestures.md 驗證紀錄） |
+| 誤觸與放開遺失（D4） | **後續**：長時間不動的觸點取消、報告中斷 watchdog、佇列溢位重新同步；實機驗證滑鼠線誤觸與 Unity 失焦 |
+| 程式碼審查 Q1（2026-10） | **後續**：正確性、效能（mtk-server 輸出 CPU 約 −57%、Unity 零 GC）、結構、文件 5 批，見 [reviews/2026-10-code-review.md](reviews/2026-10-code-review.md) |
 
 ## 6. 待辦與分工
 
 - p1（專案管理）：GitHub 推送、命名（目錄與產品名 `MultiTouchKit`，repo `xdxd-lab/multi_touch_kit`）、派工。
 - p3（核心開發）：補完第 5 節未完成項目與後續開發；技術決策、編譯與反組譯參考資料。
 - p2（測試）：建置、單元測試、範例與輸出驗證。
-- 使用者：實機觸控測試、安裝 Unity Hub＋LTS、授予「輸入監控」與「輔助使用」權限。
+- 使用者：實機觸控測試、安裝 Unity Hub＋LTS（已完成：Unity 6000.3.27f1）、授予「輸入監控」與「輔助使用」權限。

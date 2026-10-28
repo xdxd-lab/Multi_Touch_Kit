@@ -14,7 +14,19 @@ import Foundation
 ///
 /// 手指不會同時落下：第一指落下後 `settleDuration` 內出現的手指都算同一個手勢；
 /// 手勢一旦決定，之後新增的手指都忽略，直到所有手指離開。
+///
+/// 狀態轉移：
+///
+///     idle ──手指落下──▶ pending ──decide()──▶ pointer（拖曳）／scroll／transform（縮放＋旋轉）／swipe
+///                          │                         │
+///                          └─全部放開：tap()──────────┴─手勢結束──▶ waitLift ──所有手指離開──▶ idle
+///
+/// - 手勢一旦決定就不會改變類型（例如捲動中不會變成縮放）：觸控螢幕上兩指很少完全平行，邊做邊改判會讓內容跳動。
+/// - 兩指手勢以「第二指落下當下」為起點（`twoFingerOrigin`）：先落下的手指在等待期間的漂移不算進捲動或旋轉。
+/// - 捲動與縮放／旋轉的區分：兩指運動拆成重心平移與指間向量的變化，比較兩者大小（見 `decide`）。
 public struct GestureRecognizer: Sendable {
+    /// 辨識參數：距離單位為點（全域 Quartz 座標）、時間單位為秒。預設值以 MF156LR（15.6 吋、1920×1080）實機調整，
+    /// 調整紀錄見 docs/gestures.md
     public struct Configuration: Sendable, Equatable {
         /// 位移在此範圍內仍算點擊（點）
         public var tapSlop: Double = 14
@@ -25,10 +37,15 @@ public struct GestureRecognizer: Sendable {
         /// 手指按住時會慢慢漂移（例如先放軸心手指、停一下再放第二指旋轉）：位移超過 `tapSlop`
         /// 但最近速度低於此值時不算拖曳（點／秒），直到位移超過 `slowDragSlop`
         public var dragMinimumSpeed: Double = 150
+        /// 慢速漂移時開始拖曳所需的位移（點）；這個範圍內的長按仍算右鍵
         public var slowDragSlop: Double = 40
+        /// 一指按住不動超過此時間（秒），放開時為右鍵點擊
         public var longPressDuration: Double = 0.6
+        /// 兩指點擊（右鍵）的最長接觸時間（秒）
         public var twoFingerTapMaxDuration: Double = 0.35
+        /// 連點（雙擊、三擊）的最長間隔（秒）
         public var doubleClickInterval: Double = 0.45
+        /// 連點時兩次點擊位置的最大距離（點）
         public var doubleClickDistance: Double = 24
         /// 兩指重心移動超過此距離開始捲動（點）
         public var scrollThreshold: Double = 12
@@ -41,6 +58,7 @@ public struct GestureRecognizer: Sendable {
         /// 旋轉成為主要動作需要的切向位移（點），且要大於開合徑向位移的 `rotationDominance` 倍；
         /// 捏合剛開始時兩指靠得近，小角度雜訊不會被當成旋轉
         public var rotationMinimumArc: Double = 25
+        /// 見 `rotationMinimumArc`
         public var rotationDominance: Double = 1.5
         /// 兩指相對位移（指間向量的變化）小於重心位移的這個比例就立即判定為捲動；
         /// 以一指為軸旋轉或單指捏合時，相對位移約為重心位移的 2 倍，不會被當成捲動
@@ -71,13 +89,14 @@ public struct GestureRecognizer: Sendable {
         public var momentumMinimumSpeed: Double = 150
         /// 慣性速度低於此值時停止（點／秒）
         public var momentumStopSpeed: Double = 20
-        /// 慣性衰減率（每秒，速度 × e^(-friction·t)）。慣性總距離 ≈ 放開速度 ÷ friction；
-        /// 初速一律等於手指放開時的速度（銜接自然），只用衰減調整滑行距離。
-        /// 2.1 ≈ 2.8 的 1/1.33：使用者在 2.8（原 3.5 的 +25%）實測後要求再多 33%（相對原 3.5 約 +67%）
+        /// 慣性衰減率（每秒，速度 × e^(-friction·t)）。慣性總距離 ≈ 放開速度 ÷ friction。
+        /// 只用衰減調整滑行距離、不放大初速：初速一律等於手指放開時的速度，手指與內容的銜接才不會跳一下。
+        /// 預設值的實測調整紀錄見 docs/gestures.md
         public var momentumFriction: Double = 2.1
         /// 計算放開速度時取最近多久的位移（秒）
         public var velocityWindow: Double = 0.1
 
+        /// 預設值（MF156LR 實機調整）
         public init() {}
     }
 
@@ -106,6 +125,7 @@ public struct GestureRecognizer: Sendable {
         var time: Double
     }
 
+    /// 辨識參數；可在手勢之間修改（進行中的手勢會以新參數繼續）
     public var configuration: Configuration
     private var state = State.idle
     /// 目前在螢幕上的手指
@@ -124,6 +144,7 @@ public struct GestureRecognizer: Sendable {
     private var momentum: Momentum?
     private var lastClick: (time: Double, point: CGPoint, count: Int)?
 
+    /// - Parameter configuration: 辨識參數，預設為 MF156LR 實機調整的值
     public init(configuration: Configuration = .init()) {
         self.configuration = configuration
     }

@@ -92,8 +92,10 @@ namespace MultiTouchKit
             m_BindAddress = IPAddress.TryParse(m_BindText, out var address) ? address : null;
         }
 
+        /// <inheritdoc/>
         public string Name => $"UDP {m_BindText}:{m_Port}";
 
+        /// <inheritdoc/>
         public bool Start()
         {
             if (m_BindAddress == null)
@@ -161,6 +163,7 @@ namespace MultiTouchKit
             }
         }
 
+        /// <inheritdoc/>
         public void Poll(List<MultiTouchTouch> output)
         {
             bool overflowed;
@@ -230,6 +233,8 @@ namespace MultiTouchKit
             m_ResyncDevices.Clear();
         }
 
+        /// <param name="output">取消事件附加到這裡</param>
+        /// <param name="device">onlyUnseen 時只處理這個裝置的觸點</param>
         /// <param name="onlyUnseen">true：只取消該裝置這個 frame 沒有列出的觸點；false：取消全部</param>
         void CancelWhere(List<MultiTouchTouch> output, int device, bool onlyUnseen)
         {
@@ -248,6 +253,7 @@ namespace MultiTouchKit
             }
         }
 
+        /// <summary>停止接收並釋放資源；可重複呼叫。</summary>
         public void Dispose()
         {
             m_Running = false;

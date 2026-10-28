@@ -15,14 +15,17 @@ namespace MultiTouchKit
         static Touchscreen s_Device;
         static double s_InputTimeOffset;
 
+        /// <summary>虛擬的 Touchscreen 裝置；尚未啟用時為 null。</summary>
         public static Touchscreen Device => s_Device;
 
+        /// <summary>新增虛擬的 Touchscreen 裝置（已存在時不做任何事）。</summary>
         public static void Enable()
         {
             if (s_Device != null && s_Device.added) return;
             s_Device = InputSystem.AddDevice<Touchscreen>("MultiTouchKit Touchscreen");
         }
 
+        /// <summary>移除虛擬的 Touchscreen 裝置。</summary>
         public static void Disable()
         {
             if (s_Device != null && s_Device.added) InputSystem.RemoveDevice(s_Device);
@@ -35,6 +38,7 @@ namespace MultiTouchKit
             s_InputTimeOffset = InputState.currentTime - MultiTouchClock.NowNs / 1e9;
         }
 
+        /// <summary>把一個觸控事件排入 Input System（時間換算成 Input System 時間）。</summary>
         public static void Queue(in MultiTouchTouch touch)
         {
             if (s_Device == null || !s_Device.added) return;

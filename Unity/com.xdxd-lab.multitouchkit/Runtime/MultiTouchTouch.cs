@@ -19,7 +19,9 @@ namespace MultiTouchKit
         public ulong Id;
         /// <summary>控制器的 Contact Identifier，放開後會被重複使用。</summary>
         public int ContactId;
+        /// <summary>產生這個事件的裝置（原生裝置從 1 開始；mtk-server --simulate 為 0）。</summary>
         public int DeviceId;
+        /// <summary>這個事件的階段；Cancelled 請當成放開處理（例如長按音符判失敗）。</summary>
         public MultiTouchPhase Phase;
         /// <summary>面板上的正規化座標 0..1，原點在左上角。</summary>
         public Vector2 Normalized;
@@ -32,6 +34,7 @@ namespace MultiTouchKit
         /// <summary>同一個掃描 frame 的事件數值相同。</summary>
         public uint FrameSequence;
 
+        /// <summary>Ended 或 Cancelled：手指已不在螢幕上。</summary>
         public bool IsTerminal => Phase == MultiTouchPhase.Ended || Phase == MultiTouchPhase.Cancelled;
 
         /// <summary>觸碰當下對應的 AudioSettings.dspTime，用於節奏遊戲判定。</summary>

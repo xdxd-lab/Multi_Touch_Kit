@@ -34,11 +34,16 @@ public struct ScreenMapping: Sendable {
         case degrees270 = 270
     }
 
+    /// 觸控螢幕所在的顯示器。預設是主螢幕，但觸控螢幕通常不是主螢幕：請用 `init?(selector:panel:)` 或 `DisplayLocator` 找出正確的顯示器
     public var displayID: CGDirectDisplayID
+    /// 面板相對畫面的旋轉（在翻轉之後套用）
     public var rotation: Rotation
+    /// 面板左右顛倒（先於旋轉套用）
     public var flipX: Bool
+    /// 面板上下顛倒（先於旋轉套用）
     public var flipY: Bool
 
+    /// - Parameter displayID: 預設主螢幕；觸控螢幕不是主螢幕時請明確指定（見 `displayID`）
     public init(displayID: CGDirectDisplayID = CGMainDisplayID(), rotation: Rotation = .none,
                 flipX: Bool = false, flipY: Bool = false) {
         self.displayID = displayID

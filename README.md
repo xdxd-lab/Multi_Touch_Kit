@@ -78,7 +78,7 @@ swift build -c release
 | `Unity/com.xdxd-lab.multitouchkit` | Unity 套件（含 universal `MultiTouchKit.bundle`） |
 | `Examples/` | C、Python（ctypes／UDP／WebSocket／TUIO）、網頁範例 |
 | `scripts/` | 測試、建置 Unity 外掛、C 範例、LaunchAgent 安裝／移除 |
-| `Tests/` | 單元測試（以實機擷取的報告為 fixture，不需硬體） |
+| `Tests/` | 單元測試（以實機擷取的報告為 fixture，不需硬體）；`Tests/UnityOffline` 為 Unity C# 的離線測試 |
 
 ## 開發
 
@@ -87,7 +87,9 @@ swift build                       # 建置全部
 ./scripts/test.sh                 # 單元測試（只有 Command Line Tools 時不要直接用 swift test，會找不到 Testing 模組）
 ./scripts/build-c-example.sh 5    # 編譯並執行 C 範例 5 秒
 ./scripts/test-unity-offline.sh   # 不開 Unity Editor 檢查 C#：編譯套件與範例、執行 Udp 傳輸／JSON 解析器測試
+./scripts/check-signals.sh        # 三個執行檔收到 SIGINT／SIGTERM／SIGHUP 時都正常收尾後結束（含背景啟動的情況）
 ./scripts/build-unity-plugin.sh   # 重建 Unity 外掛（改了 Sources/MultiTouchKit 或 MultiTouchKitC 後要執行並 commit）
+MTK_BENCH=1 ./scripts/test.sh -c release --filter HotPathBenchmarks   # 熱路徑微基準（平常略過）
 .build/release/mtk-server --simulate   # 無硬體開發：模擬 125 Hz 觸控
 ```
 
@@ -97,4 +99,11 @@ ABI 規則：`multitouchkit.h` 的結構欄位只能附加在尾端；改動時�
 
 ## 狀態
 
-第一階段（核心、三種呼叫方式、Unity 套件）已完成，系統層手勢合成待實機測試；尚待使用者在實機與 Unity 內驗證的項目見 [docs/PRE_ANALYSIS.md](docs/PRE_ANALYSIS.md) 第 5 節。
+- 第一階段（核心、三種呼叫方式、Unity 套件）、系統層手勢合成、誤觸與放開遺失的處理都已完成，並在 MF156LR 與 Unity 6000.3 實機驗證（[docs/hardware/mf156lr-summary.md](docs/hardware/mf156lr-summary.md)）。
+- **2026-10 程式碼審查（Q1）**：[docs/reviews/2026-10-code-review.md](docs/reviews/2026-10-code-review.md)。分 5 批改善：
+  - 正確性：C API 回呼的 use-after-free、Unity 重複 Manager、UDP 幽靈觸點、資源洩漏、畸形描述元等。
+  - 效能：mtk-server 輸出全開時 CPU 約 −57%（輸出位元組不變，以 golden 測試保證）；Unity 每幀零 GC。
+  - 結構：`TouchSource`、共用的命令列解析、公開 API 收斂。
+  - 文件註解。
+  - 測試：82 → 111 項，另有 Unity 離線測試與信號處理檢查。不改 C ABI。
+- 待使用者在 Unity 內實機確認的項目（審查後的 Unity 端修正）見 [docs/unity.md](docs/unity.md) 開頭的狀態。

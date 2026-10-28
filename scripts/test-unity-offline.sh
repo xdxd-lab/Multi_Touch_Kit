@@ -42,10 +42,10 @@ else
     echo "注意：找不到 Unity.InputSystem.dll，略過 MTK_INPUT_SYSTEM 的編譯（可設定 UNITY_PROJECT）"
 fi
 RUNTIME_SOURCES=(${(f)"$(find $PACKAGE/Runtime -name '*.cs')"})
-# CS0649：JsonUtility／Inspector 填入的欄位
+# CS0649：Inspector 填入的欄位。-doc 讓 XML 文件註解的格式錯誤與錯誤的 cref 也成為錯誤（CS1591「缺少註解」不強制）
 for define in $DEFINES; do
-    $CSC -target:library -langversion:9 -warnaserror+ -nowarn:1701,1702,0649 -define:"$define" $UNITY_REFS \
-        ${INPUT_SYSTEM:+-r:$INPUT_SYSTEM} -out:$OUT/Runtime.dll $RUNTIME_SOURCES
+    $CSC -target:library -langversion:9 -warnaserror+ -nowarn:1701,1702,0649,1591 -define:"$define" $UNITY_REFS \
+        ${INPUT_SYSTEM:+-r:$INPUT_SYSTEM} -doc:$OUT/Runtime.xml -out:$OUT/Runtime.dll $RUNTIME_SOURCES
     echo "編譯 Runtime [$define]：OK"
 done
 $CSC -target:library -langversion:9 -warnaserror+ -nowarn:1701,1702 -define:UNITY_EDITOR_OSX $UNITY_REFS \
