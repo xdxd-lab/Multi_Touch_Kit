@@ -1,7 +1,10 @@
 import Foundation
+import MultiTouchKit
 import Network
 
-/// 非阻塞 UDP 傳送端（JSON 與 TUIO 共用）
+/// 非阻塞 UDP 傳送端（JSON 與 TUIO 共用）。
+/// 以 connect() 固定目的地：之後的 send() 不必每次查路由、複製位址（每 frame 的核心成本約少 1/4）。
+/// 沒有接收端時下一次 send 可能回傳 ECONNREFUSED，與 sendto 一樣忽略。
 final class UDPSender: @unchecked Sendable {
     let label: String
     private let fd: Int32
@@ -23,20 +26,29 @@ final class UDPSender: @unchecked Sendable {
             raw.copyMemory(from: UnsafeRawBufferPointer(start: info.pointee.ai_addr, count: Int(info.pointee.ai_addrlen)))
         }
         label = "\(host):\(port)"
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, addressLength) }
+        }
+        guard connected == 0 else {
+            close(fd)
+            return nil
+        }
     }
 
     deinit {
         close(fd)
     }
 
+    func send(_ bytes: UnsafeRawBufferPointer) {
+        _ = Darwin.send(fd, bytes.baseAddress, bytes.count, 0)
+    }
+
+    func send(_ bytes: [UInt8]) {
+        bytes.withUnsafeBytes { send($0) }
+    }
+
     func send(_ data: Data) {
-        data.withUnsafeBytes { bytes in
-            withUnsafePointer(to: &address) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    _ = sendto(fd, bytes.baseAddress, bytes.count, 0, $0, addressLength)
-                }
-            }
-        }
+        data.withUnsafeBytes { send($0) }
     }
 
     /// 解析 "HOST:PORT"（IPv6 請寫成 [::1]:7777）
@@ -87,9 +99,16 @@ final class WebSocketHub: @unchecked Sendable {
         connections.removeAll()
     }
 
+    /// 有沒有已連線的用戶端（在 queue 上讀取）
+    var hasClients: Bool { !connections.isEmpty }
+
     func broadcast(_ text: String) {
         guard !connections.isEmpty else { return }
-        let data = Data(text.utf8)
+        broadcast(Data(text.utf8))
+    }
+
+    /// `data` 為 UTF-8 文字
+    func broadcast(_ data: Data) {
         for c in connections.values { send(data, to: c) }
     }
 
@@ -129,5 +148,57 @@ final class WebSocketHub: @unchecked Sendable {
         let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
         let context = NWConnection.ContentContext(identifier: "mtk", metadata: [metadata])
         connection.send(content: data, contentContext: context, isComplete: true, completion: .idempotent)
+    }
+}
+
+/// 把每個 frame 分送給 UDP JSON、WebSocket、TUIO（在觸控來源的 queue 上呼叫）。
+/// 沒有接收者時不編碼；JSON 與 TUIO 的位元組緩衝區每 frame 重複使用。
+final class OutputFanout {
+    var udp: [UDPSender] = []
+    var webSocket: WebSocketHub?
+    var tuioSender: UDPSender?
+    private var tuio: TUIOEncoder
+    /// 仍在螢幕上的觸點，依 id 排序（TUIO alive；最多約 10 筆，線性搜尋）
+    private var alive: [Touch] = []
+    private var json: [UInt8] = []
+    private var osc: [UInt8] = []
+
+    init(tuioSource: String) {
+        tuio = TUIOEncoder(source: tuioSource)
+    }
+
+    func send(_ frame: TouchFrame) {
+        let wantsJSON = !udp.isEmpty || webSocket?.hasClients == true
+        if wantsJSON {
+            json.removeAll(keepingCapacity: true)
+            TouchJSON.frameBytes(frame, into: &json)
+            json.withUnsafeBytes { bytes in for sender in udp { sender.send(bytes) } }
+            if let webSocket, webSocket.hasClients { webSocket.broadcast(Data(json)) }
+        }
+        updateAlive(frame.touches)
+        if let tuioSender {
+            tuio.encode(alive: alive, updated: frame.touches, onlyChanged: true, timestamp: frame.timestamp, into: &osc)
+            tuioSender.send(osc)
+        }
+    }
+
+    /// 裝置事件（加入、移除、重新初始化）
+    func send(message: String) {
+        let data = Data(message.utf8)
+        for sender in udp { sender.send(data) }
+        webSocket?.broadcast(data)
+    }
+
+    private func updateAlive(_ touches: [Touch]) {
+        for t in touches {
+            let index = alive.firstIndex { $0.id >= t.id }
+            if t.phase.isTerminal {
+                if let index, alive[index].id == t.id { alive.remove(at: index) }
+            } else if let index, alive[index].id == t.id {
+                alive[index] = t
+            } else {
+                alive.insert(t, at: index ?? alive.endIndex)
+            }
+        }
     }
 }

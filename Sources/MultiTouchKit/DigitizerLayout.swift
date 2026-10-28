@@ -216,15 +216,20 @@ struct ContactTracker: Sendable {
     /// 已因長時間不動而取消、但控制器仍回報按下的 contact（記錄取消時的位置）
     private(set) var suppressed: [Int: (x: Double, y: Double)] = [:]
 
+    /// 這個 frame 出現過的 contact（每次呼叫重複使用，避免每 frame 配置；最多約 10 筆，線性搜尋比 Set 快）
+    private var seen: [Int] = []
+
     var hasActiveTouches: Bool { !active.isEmpty }
 
     /// - Parameter time: frame 時間（奈秒）；0 時不做長時間不動的判斷
     mutating func update(_ contacts: [RawContact], at time: UInt64 = 0, allocateID: () -> UInt64) -> [Touch] {
         var out: [Touch] = []
-        var seen = Set<Int>()
+        out.reserveCapacity(max(contacts.count, active.count))
+        seen.removeAll(keepingCapacity: true)
         let checkStale = stalePolicy.timeout > 0 && time > 0
         for c in contacts {
-            guard seen.insert(c.contactID).inserted else { continue }
+            guard !seen.contains(c.contactID) else { continue }
+            seen.append(c.contactID)
             if c.tip {
                 if let s = suppressed[c.contactID] {
                     // 幽靈觸點：明顯移動才當成新的觸碰，否則忽略
@@ -266,15 +271,19 @@ struct ContactTracker: Sendable {
                 }
             }
         }
-        // 沒出現在這個 frame 的觸點視為已放開
-        for (cid, t) in active.sorted(by: { $0.value.id < $1.value.id }) where !seen.contains(cid) {
-            var ended = t
-            ended.phase = .ended
-            active[cid] = nil
-            anchors[cid] = nil
-            out.append(ended)
+        // 沒出現在這個 frame 的觸點視為已放開（依觸點 id 排序；先檢查，平常沒有就不必排序）
+        if active.keys.contains(where: { !seen.contains($0) }) {
+            for (cid, t) in active.sorted(by: { $0.value.id < $1.value.id }) where !seen.contains(cid) {
+                var ended = t
+                ended.phase = .ended
+                active[cid] = nil
+                anchors[cid] = nil
+                out.append(ended)
+            }
         }
-        for cid in suppressed.keys where !seen.contains(cid) { suppressed[cid] = nil }
+        if suppressed.keys.contains(where: { !seen.contains($0) }) {
+            for cid in Array(suppressed.keys) where !seen.contains(cid) { suppressed[cid] = nil }
+        }
         return out
     }
 

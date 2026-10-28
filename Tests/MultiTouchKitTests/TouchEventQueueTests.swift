@@ -97,4 +97,21 @@ struct TestEvent: QueuedTouchEvent, Equatable {
         while !q.isEmpty { consumer.apply(q.pop(limit: 2)) }
         #expect(consumer.active.keys.sorted() == [2, 3])
     }
+
+    /// C API 用的 pop(into:) 與 pop(limit:) 結果相同（含溢位後的重新同步，以及 buffer 比事件少的情況）
+    @Test func popIntoMatchesPopLimit() {
+        var a = TouchEventQueue<TestEvent>(capacity: 4)
+        var b = a
+        for id: UInt64 in 1...3 { a.push(TestEvent(id: id, phase: .began)); b.push(TestEvent(id: id, phase: .began)) }
+        #expect(a.pop(limit: 2) == popInto(&b, 2))
+        for id: UInt64 in 4...9 { a.push(TestEvent(id: id, phase: .moved)); b.push(TestEvent(id: id, phase: .moved)) }
+        for limit in [1, 2, 3, 100] { #expect(a.pop(limit: limit) == popInto(&b, limit)) }
+        #expect(a.isEmpty && b.isEmpty)
+    }
+
+    func popInto(_ q: inout TouchEventQueue<TestEvent>, _ capacity: Int) -> [TestEvent] {
+        var buffer = [TestEvent](repeating: TestEvent(id: 0, phase: .began), count: capacity)
+        let n = buffer.withUnsafeMutableBufferPointer { q.pop(into: $0) }
+        return Array(buffer.prefix(n))
+    }
 }

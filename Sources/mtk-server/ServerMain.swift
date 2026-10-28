@@ -167,11 +167,7 @@ final class ServerRuntime: @unchecked Sendable {
     private var manager: MultiTouchManager?
     private var simulator: SimulatedTouchSource?
     private let queue: DispatchQueue
-    private var udp: [UDPSender] = []
-    private var tuioSender: UDPSender?
-    private var tuio = TUIOEncoder(source: "MultiTouchKit@\(ProcessInfo.processInfo.hostName)")
-    private var webSocket: WebSocketHub?
-    private var active: [UInt64: Touch] = [:]
+    private let outputs = OutputFanout(tuioSource: "MultiTouchKit@\(ProcessInfo.processInfo.hostName)")
     private var signalSources: [DispatchSourceSignal] = []
     private var gestures: GestureController?
     /// 觸控螢幕所在的顯示器（在主執行緒解析，才拿得到名稱）
@@ -207,7 +203,7 @@ final class ServerRuntime: @unchecked Sendable {
                 print("無法建立 UDP 目的地 \(target)")
                 exit(1)
             }
-            udp.append(sender)
+            outputs.udp.append(sender)
             print("UDP JSON → \(sender.label)")
         }
         if let target = options.tuioTarget {
@@ -215,12 +211,12 @@ final class ServerRuntime: @unchecked Sendable {
                 print("無法建立 TUIO 目的地 \(target)")
                 exit(1)
             }
-            tuioSender = sender
+            outputs.tuioSender = sender
             print("TUIO 1.1 → \(sender.label)")
         }
         if let port = options.wsPort {
             do {
-                webSocket = try WebSocketHub(port: port, lan: options.wsLAN, queue: queue,
+                outputs.webSocket = try WebSocketHub(port: port, lan: options.wsLAN, queue: queue,
                                              hello: { [self] in TouchJSON.hello(server: "mtk-server", devices: devices, display: display) },
                                              log: { print($0) })
             } catch {
@@ -261,7 +257,7 @@ final class ServerRuntime: @unchecked Sendable {
             let source = DispatchSource.makeSignalSource(signal: sig, queue: queue)
             source.setEventHandler { [self] in
                 gestures?.shutdown()
-                webSocket?.cancel()
+                outputs.webSocket?.cancel()
                 manager?.stop()
                 simulator?.stop()
                 print("已停止")
@@ -318,20 +314,7 @@ final class ServerRuntime: @unchecked Sendable {
 
     private func handle(_ frame: TouchFrame) {
         gestures?.handle(frame)
-        for t in frame.touches {
-            if t.phase.isTerminal { active[t.id] = nil } else { active[t.id] = t }
-        }
-        let json = TouchJSON.frame(frame)
-        if !udp.isEmpty {
-            let data = Data(json.utf8)
-            for sender in udp { sender.send(data) }
-        }
-        webSocket?.broadcast(json)
-        if let tuioSender {
-            let alive = active.values.sorted { $0.id < $1.id }
-            let updated = frame.touches.filter { $0.phase == .began || $0.phase == .moved }
-            tuioSender.send(tuio.encode(alive: alive, updated: updated, timestamp: frame.timestamp))
-        }
+        outputs.send(frame)
         if options.verbose {
             for t in frame.touches where t.phase != .stationary {
                 print(String(format: "裝置 %d  touch %llu（cid %d）%@  x=%.4f y=%.4f",
@@ -365,8 +348,6 @@ final class ServerRuntime: @unchecked Sendable {
             gestures?.cancel()
         case .reinitialized(let info): message = TouchJSON.device(info, event: "reinitialized")
         }
-        let data = Data(message.utf8)
-        for sender in udp { sender.send(data) }
-        webSocket?.broadcast(message)
+        outputs.send(message: message)
     }
 }
