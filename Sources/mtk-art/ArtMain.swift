@@ -34,6 +34,7 @@ struct ArtCommand {
         // Unity：MultiTouchKitManager 元件在 Inspector／Add Component 中的圖示
         try writePNG(BrandIcon.image(size: 128), to: base.appendingPathComponent(
             "Unity/com.xdxd-lab.multitouchkit/Editor/Icons/MultiTouchKitManager.png"))
+        print("字標與背景的 WCAG 對比（大字標準 ≥ 3:1）：\n" + BrandPalette.contrastReport())
         print("已輸出 \(brand.path)（iconset、1024 PNG、SVG、banner）、Examples/web/favicon.svg、Unity 元件圖示")
     }
 

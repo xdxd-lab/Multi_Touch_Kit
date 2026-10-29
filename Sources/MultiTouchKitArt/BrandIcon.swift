@@ -20,12 +20,12 @@ public enum BrandIcon {
         var rings: Int
     }
 
-    /// 五指輕觸的排列：拇指在左下，其餘四指沿弧線排開、彼此不重疊；中指帶兩圈擴散（剛按下）。
+    /// 五指輕觸的排列：拇指在左下，其餘四指沿弧線排開、彼此不重疊；拇指旁的食指帶兩圈擴散（剛按下，呼應字標中右手食指的 o）。
     /// id 取奇數（1、3、5、7、9）：仍是 mtk-viewer 的「id × 37°」，色相分布到橘、綠、青、紫、粉
     static let contacts: [Contact] = [
         Contact(center: CGPoint(x: 284, y: 695), radius: 70, id: 1, rings: 0),
-        Contact(center: CGPoint(x: 372, y: 501), radius: 66, id: 3, rings: 0),
-        Contact(center: CGPoint(x: 512, y: 417), radius: 72, id: 5, rings: 2),
+        Contact(center: CGPoint(x: 372, y: 501), radius: 66, id: 3, rings: 2),
+        Contact(center: CGPoint(x: 512, y: 417), radius: 72, id: 5, rings: 0),
         Contact(center: CGPoint(x: 652, y: 501), radius: 66, id: 7, rings: 0),
         Contact(center: CGPoint(x: 744, y: 641), radius: 58, id: 9, rings: 0),
     ]
@@ -77,8 +77,11 @@ public enum BrandIcon {
         return RGB(r: r + m, g: g + m, b: b + m)
     }
 
-    static func fillColor(_ id: Int) -> RGB { hsl(hue(id), 0.70, 0.55) }
-    static func ringColor(_ id: Int) -> RGB { hsl(hue(id), 0.80, 0.60) }
+    /// 指尖色：品牌色彩系統的深色組（圖示是深色底；與 README 字標同一套顏色）
+    static func fillColor(_ id: Int) -> RGB {
+        BrandPalette.color(BrandPalette.Finger(rawValue: (id - 1) / 2) ?? .middle, .dark)
+    }
+    static func ringColor(_ id: Int) -> RGB { fillColor(id) }
 
     /// 擴散圈 k（從 1 起）的半徑與透明度：越外圈越淡
     static func ring(_ k: Int, of contact: Contact) -> (radius: CGFloat, alpha: CGFloat) {
@@ -220,21 +223,18 @@ public enum BrandIcon {
     }
 
     /// README 頂部的 banner：左側圖示、右側字標與說明。`dark` 決定文字顏色（背景透明，配合 GitHub 的深淺色主題）
+    /// README 頂部的 banner：左側圖示、右側字標（Wordmark）與副標題。背景透明，`dark` 決定配色（GitHub 的深淺色主題）
     public static func bannerSVG(dark: Bool) -> String {
-        let title = dark ? "#F0F3F6" : "#1F2328"
-        let subtitle = dark ? "#9198A1" : "#59636E"
-        // 字標的強調色 = 圖示主角（中指、帶擴散圈）的色相；淺色背景用較深的亮度以維持對比
-        let hero = contacts.first { $0.rings > 0 }!.id
-        let accent = (dark ? fillColor(hero) : hsl(hue(hero), 0.70, 0.40)).hex
+        let theme: BrandPalette.Theme = dark ? .dark : .light
+        let scale = 0.92
         return """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" width="1280" height="320">
         <title>MultiTouchKit</title>
         <g transform="translate(40 32) scale(0.25)">
         \(svgBody(idPrefix: dark ? "d" : "l"))</g>
-        <g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'PingFang TC', 'Noto Sans TC', Helvetica, Arial, sans-serif">
-          <text x="336" y="150" font-size="88" font-weight="700" letter-spacing="-1.5" fill="\(title)">Multi<tspan fill="\(accent)">Touch</tspan>Kit</text>
-          <text x="340" y="212" font-size="30" font-weight="500" fill="\(subtitle)">macOS 10 點觸控螢幕 · Swift · C · Unity · WebSocket</text>
-        </g>
+        <g transform="translate(340 82) scale(\(fmt(scale)))">
+        \(Wordmark.svg(theme, id: dark ? "wd" : "wl"))</g>
+        <text x="340" y="232" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', Helvetica, Arial, sans-serif" font-size="28" font-weight="500" fill="\(theme.muted)">macOS 10 點觸控螢幕 · Swift · C · Unity · WebSocket</text>
         </svg>
 
         """
