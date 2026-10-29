@@ -10,6 +10,8 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
 
     private var window: NSWindow!
     private var touchView: TouchView!
+    /// --calibrate 時的畫面（取代 touchView）
+    private var calibrationView: CalibrationView?
     private var source: TouchSource?
     private var signalSources: [DispatchSourceSignal] = []
     private var mapping = ScreenMapping()
@@ -35,13 +37,21 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
       --rotate DEG    觸控面板相對畫面的旋轉：0、90、180、270
       --simulate      使用模擬觸控（不需要硬體）
       --stale-touch-timeout SEC  誤觸：觸點幾乎不動超過 SEC 秒就取消（預設 30，0 = 關閉）
+      --server URL    改從 mtk-server 的 WebSocket 接收觸控（例：ws://127.0.0.1:7778）；--calibrate 時預設先試 ws://127.0.0.1:7778
+      --calibrate     觸控校正：9 個十字同時顯示，任意點擊，Enter 儲存（常駐 mtk-server 執行中也可以）
+      --calibrate-reset  刪除這個觸控螢幕的校正後離開
     """
+
+    /// 常駐 mtk-server 的 WebSocket（預設埠）；校正時優先透過它收集，不必暫停常駐服務
+    static let serverURL = URL(string: "ws://127.0.0.1:7778")!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         handleTerminationSignals()
         var selector = DisplaySelector.environment ?? .automatic
         var simulate = false
         var configuration = MultiTouchManager.Configuration()
+        var calibrate = false, calibrateReset = false
+        var serverURL: URL?
         var args = CommandLineArguments(usage: Self.usage)
         while let a = args.next() {
             switch a {
@@ -57,6 +67,12 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
                 mapping.rotation = rotation
             case "--simulate": simulate = true
             case "--stale-touch-timeout": configuration.staleTouchTimeout = args.staleTouchTimeout()
+            case "--server":
+                let text = args.value(for: a, " WebSocket 網址")
+                guard let url = URL(string: text), ["ws", "wss"].contains(url.scheme ?? "") else { args.fail("--server 需要 ws:// 網址（收到「\(text)」）") }
+                serverURL = url
+            case "--calibrate": calibrate = true
+            case "--calibrate-reset": calibrateReset = true
             default: args.unknown(a)
             }
         }
@@ -67,16 +83,30 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { MainActor.assumeIsolated { ViewerApp.shared?.receive(frame) } }
         }
         let source: TouchSource
+        var sourceDescription = "模擬觸控"
         if simulate {
             source = SimulatedTouchSource()
             touchView.status = "模擬觸控"
+        } else if serverURL != nil || calibrate || calibrateReset,
+                  let server = ServerTouchSource.connect(to: serverURL ?? Self.serverURL, timeout: 1.5),
+                  !server.connectedDevices.isEmpty || serverURL != nil {
+            // 常駐 mtk-server 獨占著觸控螢幕：透過它的 WebSocket 收集（frame 中有校正前的座標）
+            source = server
+            sourceDescription = "透過 mtk-server"
+            print("透過 mtk-server（\(server.url.absoluteString)）接收觸控")
+        } else if let serverURL {
+            print("無法連線 \(serverURL.absoluteString)（mtk-server 沒有執行或沒有開 WebSocket）")
+            exit(1)
         } else {
+            // 校正必須收集原始座標：不套用目前的校正
+            if calibrate || calibrateReset { configuration.calibration = .disabled }
             let manager = MultiTouchManager(configuration: configuration)
             manager.logHandler = { message in
                 print(message)
-                DispatchQueue.main.async { MainActor.assumeIsolated { ViewerApp.shared?.touchView.status = message } }
+                DispatchQueue.main.async { MainActor.assumeIsolated { ViewerApp.shared?.setStatus(message) } }
             }
             source = manager
+            sourceDescription = "直接讀取觸控螢幕"
         }
         source.frameHandler = handler
         self.source = source
@@ -87,6 +117,29 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
                 touchView.status = "啟動失敗：\(error)"
             }
             if source.connectedDevices.isEmpty { touchView.status = "沒有偵測到觸控螢幕，接上後會自動開始" }
+        }
+        if calibrate || calibrateReset {
+            // mtk-server --simulate 沒有 device 訊息：以模擬裝置資訊代替（只用於測試畫面）
+            let simulated = simulate || (source is ServerTouchSource && source.connectedDevices.isEmpty)
+            guard let device = source.connectedDevices.first ?? (simulated ? SimulatedTouchSource.deviceInfo : nil) else {
+                print("找不到觸控螢幕：沒有接上，或被其他程式獨占（例如 Unity，或沒有開 WebSocket 的 mtk-server）。請關閉該程式後再試")
+                exit(1)
+            }
+            if calibrateReset {
+                let store = TouchCalibrationStore()
+                do {
+                    let removed = try store.remove(for: device)
+                    print(removed > 0 ? "已刪除 \(device.product) 的觸控校正（\(store.url.path)）；執行中的 mtk-server 會在 2 秒內停止套用"
+                                      : "\(device.product) 沒有觸控校正")
+                    source.stop()
+                    exit(0)
+                } catch {
+                    print("刪除失敗：\(error.localizedDescription)")
+                    exit(1)
+                }
+            }
+            let match = DisplayLocator.resolve(selector, panel: device)
+            calibrationView = CalibrationView(context: .init(device: device, display: match?.display, sourceDescription: sourceDescription))
         }
 
         var screen = NSScreen.main ?? NSScreen.screens[0]
@@ -104,17 +157,22 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
             mapping.displayID = CGMainDisplayID()
         }
 
-        touchView.frame = CGRect(origin: .zero, size: screen.frame.size)
+        let content: NSView = calibrationView ?? touchView
+        content.frame = CGRect(origin: .zero, size: screen.frame.size)
         window = KeyableWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.setFrame(screen.frame, display: true)
-        window.contentView = touchView
+        window.contentView = content
         window.backgroundColor = .black
         window.level = .normal
         window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(touchView)
+        window.makeFirstResponder(content)
+        calibrationView?.toView = { [unowned self] x, y in
+            content.convert(window.convertPoint(fromScreen: mapping.cocoaPoint(x: x, y: y)), from: nil)
+        }
         NSApp.activate(ignoringOtherApps: true)
         // 模擬來源在視窗建立後才開始，第一個 frame 才不會在沒有視窗時被丟掉
         if simulate { try? source.start() }
+        scheduleSnapshotIfRequested(content)
     }
 
     /// SIGINT（Ctrl-C）、SIGTERM、SIGHUP 都走 NSApp.terminate，讓 applicationWillTerminate 停止觸控來源並印出摘要。
@@ -134,11 +192,37 @@ final class ViewerApp: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         source?.stop()
-        print(touchView.summary)
+        print(calibrationView?.summary ?? touchView.summary)
+    }
+
+    /// 開發與驗證用：環境變數 MTK_VIEWER_SNAPSHOT=路徑 時，執行 3 秒（或 MTK_VIEWER_SNAPSHOT_DELAY 秒）後把畫面輸出成 PNG 並結束。
+    /// 直接繪製 view，不需要「螢幕錄製」權限
+    private func scheduleSnapshotIfRequested(_ view: NSView) {
+        let environment = ProcessInfo.processInfo.environment
+        guard let path = environment["MTK_VIEWER_SNAPSHOT"] else { return }
+        let delay = environment["MTK_VIEWER_SNAPSHOT_DELAY"].flatMap(Double.init) ?? 3
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            MainActor.assumeIsolated {
+                guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+                print("已輸出畫面：\(path)")
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
+    private func setStatus(_ message: String) {
+        touchView.status = message
+        calibrationView?.status = message
     }
 
     private func receive(_ frame: TouchFrame) {
         guard let window else { return }
+        if let calibrationView {
+            calibrationView.apply(frame)
+            return
+        }
         let points = frame.touches.map { touch -> CGPoint in
             let screenPoint = mapping.cocoaPoint(x: touch.x, y: touch.y)
             return touchView.convert(window.convertPoint(fromScreen: screenPoint), from: nil)

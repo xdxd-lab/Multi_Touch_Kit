@@ -125,7 +125,16 @@ let cocoa = mapping.cocoaPoint(x: touch.x, y: touch.y)     // 全域 Cocoa 座�
 
 ## 觸控校正
 
-面板與 LCD 的對位不完美時（MF156LR 實測各角落有方向不同的小偏差），可以用 `mtk-viewer --calibrate` 建立校正，
+面板與 LCD 的對位不完美時（MF156LR 實測各角落有方向不同的小偏差），可以建立觸控校正：
+
+1. 執行 `mtk-viewer --calibrate`。常駐的 mtk-server 執行中也可以：viewer 會透過它的 WebSocket 收集（不必暫停服務）；沒有執行時直接讀取觸控螢幕。
+2. 畫面同時顯示 9 個十字。以任意順序點擊十字的中心，可以重複點；靠近十字（面板寬度的 8% 內）的觸碰會自動歸給它，太遠的不採用。
+   每個十字下方即時顯示點擊次數與殘差，觸點畫在以目前結果校正後的位置（小圓環是原始位置），平均誤差顯示在中間的面板。
+3. 覺得位置都對了就按 **Enter**（或 S）儲存；**R** 清除重來；**Esc** 離開。點擊少於 3 次的十字會提示但仍可儲存；
+   校正量過大或映射不合理（可能點錯十字）時拒絕儲存。
+4. 刪除校正：`mtk-viewer --calibrate-reset`。
+
+校正存在 `~/Library/Application Support/MultiTouchKit/calibration.json`，
 存在 `~/Library/Application Support/MultiTouchKit/calibration.json`。之後 MultiTouchManager 會自動套用：觸點的 `x`、`y` 是校正後的值，
 校正前的值在 `uncalibratedX`／`uncalibratedY`（沒有套用時為 nil）。所有出口一致（Swift、C、Unity、mtk-server、手勢、viewer）。
 

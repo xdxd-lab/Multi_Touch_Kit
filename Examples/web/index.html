@@ -32,6 +32,8 @@
   #brand img { width: 26px; height: 26px; }
   #status { width: 8px; height: 8px; border-radius: 50%; background: var(--offline); box-shadow: 0 0 0 3px color-mix(in srgb, var(--offline) 25%, transparent); }
   #panel[data-connected="true"] #status { background: var(--online); box-shadow: 0 0 0 3px color-mix(in srgb, var(--online) 25%, transparent); }
+  /* D 模式：面板移到第一、二列校正十字（10%、50%）之間的正中央，不遮住左上的十字 */
+  #panel[data-debug="true"] { left: 50%; top: 30%; transform: translate(-50%, -50%); }
   #hud { white-space: pre-wrap; color: var(--muted); font-variant-numeric: tabular-nums; }
   #fullscreen { position: fixed; right: 16px; top: 16px; font: inherit; font-weight: 550; color: var(--text); cursor: pointer;
     padding: 7px 14px; border-radius: 999px; background: var(--button); border: 1px solid var(--panel-border);
@@ -232,7 +234,9 @@ function draw(now) {
     if (warning) text += `\n⚠ ${warning}`;
     if (debug) {
       const v = viewportOnScreen(win);
+      const calibrated = devices.some(d => d.calibrated);
       text += `\n— 診斷（D 關閉）—\n換算：${mode || mapTouch({ x: 0, y: 0 }, win, bounds).mode}　全螢幕：${win.fullscreen}`
+        + `\n觸控校正：${calibrated ? "已套用" : "未校正（mtk-viewer --calibrate 可建立）"}`
         + `\n觸控螢幕 bounds：${bounds ? bounds.join(", ") : "無"}`
         + `\n視窗 screenX/Y：${win.screenX}, ${win.screenY}　outer：${win.outerWidth}x${win.outerHeight}　inner：${win.innerWidth}x${win.innerHeight}`
         + `\n內容區左上：${v.left}, ${v.top}　screen：${screen.width}x${screen.height}　devicePixelRatio：${devicePixelRatio}`;
@@ -243,6 +247,8 @@ function draw(now) {
     if (hud.textContent !== text) hud.textContent = text;
     const state = String(connected);
     if (panel.dataset.connected !== state) panel.dataset.connected = state;  // 狀態燈（CSS）
+    const debugState = String(debug);
+    if (panel.dataset.debug !== debugState) panel.dataset.debug = debugState;  // D 模式時移動面板（CSS）
   }
   requestAnimationFrame(draw);
 }

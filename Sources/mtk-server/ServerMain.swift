@@ -45,6 +45,7 @@ struct ServerOptions {
       --simulate        使用模擬觸控（不需要硬體）
       --simulate-pattern drums|gestures  模擬觸控的模式（隱含 --simulate；預設 drums）。
                         gestures：每 12 秒依序做出各種手勢，搭配 --gestures 驗證辨識
+                        calibration：依序點擊 9 個校正十字（帶面板偏差），搭配 mtk-viewer --calibrate
       --verbose         印出每個觸控事件
       --stale-touch-timeout SEC  誤觸：觸點幾乎不動超過 SEC 秒就取消（預設 30，0 = 關閉）
       --no-calibration  不套用觸控校正（mtk-viewer --calibrate 建立的 calibration.json）
