@@ -1,0 +1,20 @@
+/* 由 mtk-art 產生（scripts/generate-art.sh），請勿手動修改：MultiTouchKit 品牌色彩（BrandPalette）。
+   兩個變體都是中明度，在深淺兩種背景上都可讀。 */
+:root {
+    --mtk-thumb: #B67A1A;
+    --mtk-index: #2A9B16;
+    --mtk-middle: #1794A0;
+    --mtk-ring: #9770EB;
+    --mtk-little: #E54C91;
+    --mtk-kit: linear-gradient(135deg, #A569EA, #6D7EEA, #1D8FC8, #169786);
+}
+@media (prefers-color-scheme: light) {
+  :root {
+      --mtk-thumb: #996716;
+      --mtk-index: #238213;
+      --mtk-middle: #137D86;
+      --mtk-ring: #8152E6;
+      --mtk-little: #D61F71;
+      --mtk-kit: linear-gradient(135deg, #9249E5, #5064E6, #1878A8, #127F71);
+  }
+}

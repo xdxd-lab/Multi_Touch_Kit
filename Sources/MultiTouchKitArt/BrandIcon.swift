@@ -30,11 +30,14 @@ public enum BrandIcon {
         Contact(center: CGPoint(x: 744, y: 641), radius: 58, id: 9, rings: 0),
     ]
 
-    /// 小尺寸（favicon、16–32 px）只畫三個較大的觸點，擴散圈省略
+    /// 小尺寸（16、32 pt 與其 @2x、favicon、系統設定的清單）專屬版：五個點都保留（放大、縮短間距、省略擴散圈），
+    /// 16 px 時相鄰兩點至少相隔約 1 px，且都在系統遮罩內。原本只畫三點，系統設定中就只看得到 3 個點
     static let compactContacts: [Contact] = [
-        Contact(center: CGPoint(x: 318, y: 600), radius: 120, id: 1, rings: 0),
-        Contact(center: CGPoint(x: 512, y: 400), radius: 120, id: 5, rings: 0),
-        Contact(center: CGPoint(x: 706, y: 600), radius: 120, id: 9, rings: 0),
+        Contact(center: CGPoint(x: 300, y: 706), radius: 80, id: 1, rings: 0),
+        Contact(center: CGPoint(x: 330, y: 488), radius: 78, id: 3, rings: 0),
+        Contact(center: CGPoint(x: 512, y: 328), radius: 82, id: 5, rings: 0),
+        Contact(center: CGPoint(x: 694, y: 488), radius: 78, id: 7, rings: 0),
+        Contact(center: CGPoint(x: 772, y: 700), radius: 74, id: 9, rings: 0),
     ]
 
     // 深色背景：上方略亮的炭灰漸層
@@ -77,15 +80,18 @@ public enum BrandIcon {
         return RGB(r: r + m, g: g + m, b: b + m)
     }
 
-    /// 指尖色：品牌色彩系統的深色組（圖示是深色底；與 README 字標同一套顏色）
+    /// 指尖色：品牌色彩系統的圖示色階（深色圖示底上的鮮豔版；色相與 README 字標相同）
     static func fillColor(_ id: Int) -> RGB {
-        BrandPalette.color(BrandPalette.Finger(rawValue: (id - 1) / 2) ?? .middle, .dark)
+        BrandPalette.color(BrandPalette.Finger(rawValue: (id - 1) / 2) ?? .middle, .icon)
     }
     static func ringColor(_ id: Int) -> RGB { fillColor(id) }
 
     /// 擴散圈 k（從 1 起）的半徑與透明度：越外圈越淡
+    /// 擴散圈的線寬：Dock 尺寸（128 pt）時約 1.7 px，深色底上清楚但不搶走五指
+    static let ringWidth: CGFloat = 14
+
     static func ring(_ k: Int, of contact: Contact) -> (radius: CGFloat, alpha: CGFloat) {
-        (contact.radius * (1.0 + 0.62 * CGFloat(k)), 0.62 - 0.22 * CGFloat(k))
+        (contact.radius * (1.0 + 0.6 * CGFloat(k)), 0.95 - 0.33 * CGFloat(k))
     }
 
     // MARK: - CoreGraphics
@@ -127,9 +133,13 @@ public enum BrandIcon {
         for contact in list {
             for k in stride(from: contact.rings, through: 1, by: -1) {
                 let ring = ring(k, of: contact)
+                // 外發光：同色、模糊的光暈，讓光圈在深色底上更明顯
+                context.saveGState()
+                context.setShadow(offset: .zero, blur: 22, color: cgColor(ringColor(contact.id), ring.alpha * 0.8))
                 context.setStrokeColor(cgColor(ringColor(contact.id), ring.alpha))
-                context.setLineWidth(9)
+                context.setLineWidth(ringWidth)
                 context.strokeEllipse(in: circle(contact.center, ring.radius))
+                context.restoreGState()
             }
         }
         for contact in list {
@@ -190,6 +200,7 @@ public enum BrandIcon {
 
             """
         }
+        s += "<filter id=\"\(idPrefix)-ringglow\" x=\"-0.5\" y=\"-0.5\" width=\"2\" height=\"2\"><feGaussianBlur stdDeviation=\"9\"/></filter>\n"
         s += "</defs>\n"
         s += """
         <rect \(bodySVGRect()) fill="url(#\(idPrefix)-bg)"/>
@@ -199,7 +210,8 @@ public enum BrandIcon {
         for c in list {
             for k in stride(from: c.rings, through: 1, by: -1) {
                 let r = ring(k, of: c)
-                s += "  <circle cx=\"\(fmt(c.center.x))\" cy=\"\(fmt(c.center.y))\" r=\"\(fmt(r.radius))\" fill=\"none\" stroke=\"\(ringColor(c.id).hex)\" stroke-opacity=\"\(fmt(r.alpha))\" stroke-width=\"9\"/>\n"
+                s += "  <circle cx=\"\(fmt(c.center.x))\" cy=\"\(fmt(c.center.y))\" r=\"\(fmt(r.radius))\" fill=\"none\" stroke=\"\(ringColor(c.id).hex)\" stroke-opacity=\"\(fmt(r.alpha))\" stroke-width=\"\(fmt(ringWidth))\" filter=\"url(#\(idPrefix)-ringglow)\"/>\n"
+                s += "  <circle cx=\"\(fmt(c.center.x))\" cy=\"\(fmt(c.center.y))\" r=\"\(fmt(r.radius))\" fill=\"none\" stroke=\"\(ringColor(c.id).hex)\" stroke-opacity=\"\(fmt(r.alpha))\" stroke-width=\"\(fmt(ringWidth))\"/>\n"
             }
         }
         for c in list {
@@ -234,7 +246,7 @@ public enum BrandIcon {
         \(svgBody(idPrefix: dark ? "d" : "l"))</g>
         <g transform="translate(340 82) scale(\(fmt(scale)))">
         \(Wordmark.svg(theme, id: dark ? "wd" : "wl"))</g>
-        <text x="340" y="232" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', Helvetica, Arial, sans-serif" font-size="28" font-weight="500" fill="\(theme.muted)">macOS 10 點觸控螢幕 · Swift · C · Unity · WebSocket</text>
+        <text x="340" y="232" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', Helvetica, Arial, sans-serif" font-size="28" font-weight="500" fill="\(BrandPalette.subtitle)">macOS 10 點觸控螢幕 · Swift · C · Unity · WebSocket</text>
         </svg>
 
         """

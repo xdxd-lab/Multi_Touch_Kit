@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MultiTouchKit 網頁範例</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="favicon-16.png" type="image/png" sizes="16x16">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="brand.css">
 <style>
   /* 深色與 mtk-viewer 相同（黑底上的彩色觸點）；淺色時改為淺灰底，觸點顏色不變。--canvas／--grid 也供畫布讀取 */
   :root {
@@ -30,6 +34,10 @@
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18); }
   #brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 15px; letter-spacing: -0.01em; margin-bottom: 6px; }
   #brand img { width: 26px; height: 26px; }
+  /* 字標：MultiTouch 10 個字母 = 10 根手指（鏡像配色，色彩來自 brand.css），Kit 為虹彩漸層 */
+  .mark .thumb { color: var(--mtk-thumb); } .mark .index { color: var(--mtk-index); } .mark .middle { color: var(--mtk-middle); }
+  .mark .ring { color: var(--mtk-ring); } .mark .little { color: var(--mtk-little); }
+  .mark .kit { background: var(--mtk-kit); -webkit-background-clip: text; background-clip: text; color: transparent; }
   #status { width: 8px; height: 8px; border-radius: 50%; background: var(--offline); box-shadow: 0 0 0 3px color-mix(in srgb, var(--offline) 25%, transparent); }
   #panel[data-connected="true"] #status { background: var(--online); box-shadow: 0 0 0 3px color-mix(in srgb, var(--online) 25%, transparent); }
   /* D 模式：面板移到第一、二列校正十字（10%、50%）之間的正中央，不遮住左上的十字 */
@@ -45,7 +53,7 @@
 <body>
 <canvas id="view"></canvas>
 <div id="panel" data-connected="false">
-  <div id="brand"><img src="favicon.svg" alt="">MultiTouchKit<span id="status"></span></div>
+  <div id="brand"><img src="favicon.svg" alt=""><span class="mark"><span class="little">M</span><span class="ring">u</span><span class="middle">l</span><span class="index">t</span><span class="thumb">i</span><span class="thumb">T</span><span class="index">o</span><span class="middle">u</span><span class="ring">c</span><span class="little">h</span><span class="kit">Kit</span></span><span id="status"></span></div>
   <div id="hud">連線中…</div>
 </div>
 <button id="fullscreen">全螢幕（F）</button>

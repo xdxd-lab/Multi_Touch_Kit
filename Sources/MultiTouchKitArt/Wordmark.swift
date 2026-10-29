@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// 「MultiTouchKit」字標：單線圓角筆畫的幾何字形（以路徑繪製，不使用字型：沒有授權問題，各平台呈現一致）。
@@ -5,7 +6,8 @@ import Foundation
 /// 概念：「MultiTouch」10 個字母 = 10 根手指。Multi = 左手（M 小指 → i 拇指），Touch = 右手（T 拇指 → h 小指），
 /// 左右鏡像同色：M↔h 小指、u↔c 無名指、l↔u 中指、t↔o 食指、i↔T 拇指，顏色與圖示的五個指尖相同（BrandPalette）。
 /// 右手食指的「o」帶一點點擊光暈，呼應圖示中按下的那根食指。
-/// 「Kit」用中性前景色；唯一例外是 i 上方的點：帶透明感的虹彩光點，象徵節奏遊戲中點下去的那一擊。
+/// 「Kit」使用虹彩漸層（與魔法棒光點同一組色），i 是魔法棒：棒身加上尖端的虹彩光球與星芒，象徵節奏遊戲中點下去的那一擊。
+/// 所有顏色都取中明度，深淺兩種背景都可讀（見 BrandPalette）。
 ///
 /// 座標：字母頂端 y = 0、基線 y = 100、x 字高頂端 y = 34，筆畫寬 14、圓頭圓角。
 enum Wordmark {
@@ -40,33 +42,84 @@ enum Wordmark {
         ("T", .thumb), ("o", .index), ("u", .middle), ("c", .ring), ("h", .little),
     ]
 
-    /// 虹彩光點的漸層色（依背景調整明度，淺色背景用較深的色階才看得清楚）
-    static func magicStops(_ theme: BrandPalette.Theme) -> [String] {
-        theme == .dark ? ["#FF7AD9", "#B794FF", "#6EE7F2", "#FFE27A"] : ["#D6339F", "#7C4DDB", "#0E8FA3", "#B8860B"]
-    }
+    /// Kit 虹彩漸層的色相（藍紫 → 藍 → 天藍 → 青綠）；明度與五指相同（兩種背景都可讀）。
+    /// 起點不用洋紅：緊鄰的 h（小指粉）同色系，h 與 K 會糊成一塊、看不出 MultiTouch 與 Kit 的分界
+    static let kitHues: [CGFloat] = [268, 232, 200, 172]
+    /// 魔法棒光球與小星芒的點綴色（洋紅）
+    static let sparkleHue: CGFloat = 325
+    /// MultiTouch 與 Kit 之間額外的字距
+    static let kitSpacing = 6.0
 
     /// 字標的寬度（單位同字形座標）
     static var width: Double {
         let letters = coloredLetters.map(\.0) + ["K", "i", "t"]
-        return letters.map { glyphs[$0]!.width }.reduce(0, +) + gap * Double(letters.count - 1)
+        return letters.map { glyphs[$0]!.width }.reduce(0, +) + gap * Double(letters.count - 1) + kitSpacing
+    }
+
+    /// 把絕對座標的路徑資料（M、L、H、V、A、Z）水平平移 dx
+    static func offset(_ path: String, by dx: Double) -> String {
+        var out = ""
+        var command: Character = "M"
+        var argument = 0
+        var number = ""
+        func flush() {
+            guard !number.isEmpty, let v = Double(number) else { return }
+            // 各指令中的 x 參數：M／L 的第 1 個、H 的唯一一個、A 的第 6 個（每組 7 個）
+            let isX: Bool
+            switch command {
+            case "M", "L": isX = argument % 2 == 0
+            case "H": isX = true
+            case "A": isX = argument % 7 == 5
+            default: isX = false
+            }
+            out += (out.last.map { $0.isLetter } ?? true ? "" : " ") + fmt(isX ? v + dx : v)
+            argument += 1
+            number = ""
+        }
+        for ch in path {
+            if ch.isLetter {
+                flush()
+                command = ch
+                argument = 0
+                out.append(ch)
+            } else if ch == " " || ch == "," {
+                flush()
+            } else if ch == "-" && !number.isEmpty {
+                flush()
+                number.append(ch)
+            } else {
+                number.append(ch)
+            }
+        }
+        flush()
+        return out
+    }
+
+    /// 四芒星（星芒）：長半徑 r、腰半徑 w
+    static func sparkle(_ cx: Double, _ cy: Double, _ r: Double, _ w: Double) -> String {
+        "M\(fmt(cx)) \(fmt(cy - r))L\(fmt(cx + w)) \(fmt(cy - w))L\(fmt(cx + r)) \(fmt(cy))L\(fmt(cx + w)) \(fmt(cy + w))"
+            + "L\(fmt(cx)) \(fmt(cy + r))L\(fmt(cx - w)) \(fmt(cy + w))L\(fmt(cx - r)) \(fmt(cy))L\(fmt(cx - w)) \(fmt(cy - w))Z"
     }
 
     /// 字標的 SVG 片段（左上角在 (0, 0)，高 100）；`id` 讓深淺兩份 SVG 的 defs 不衝突
     static func svg(_ theme: BrandPalette.Theme, id: String) -> String {
-        let neutral = theme.foreground
-        let stops = magicStops(theme)
+        let kit = kitHues.map { BrandPalette.color(hue: $0, theme).hex }
+        // Kit 三個字母的位置（漸層橫跨整個 Kit）
+        let kitStart = coloredLetters.map { glyphs[$0.0]!.width + gap }.reduce(0, +) + kitSpacing
+        let accent = BrandPalette.color(hue: sparkleHue, theme).hex
+        let kitEnd = kitStart + glyphs["K"]!.width + gap + glyphs["i"]!.width + gap + glyphs["t"]!.width
         var defs = """
-        <radialGradient id="\(id)-magic" cx="0.35" cy="0.3" r="0.8">
-          <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/>
-          <stop offset="0.25" stop-color="\(stops[0])"/>
-          <stop offset="0.55" stop-color="\(stops[1])"/>
-          <stop offset="0.8" stop-color="\(stops[2])"/>
-          <stop offset="1" stop-color="\(stops[3])"/>
+        <linearGradient id="\(id)-kit" gradientUnits="userSpaceOnUse" x1="\(fmt(kitStart - 7))" y1="0" x2="\(fmt(kitEnd + 7))" y2="100">
+          <stop offset="0" stop-color="\(kit[0])"/><stop offset="0.38" stop-color="\(kit[1])"/>
+          <stop offset="0.7" stop-color="\(kit[2])"/><stop offset="1" stop-color="\(kit[3])"/>
+        </linearGradient>
+        <radialGradient id="\(id)-orb" cx="0.38" cy="0.32" r="0.75">
+          <stop offset="0" stop-color="#FFFFFF"/><stop offset="0.28" stop-color="\(accent)"/>
+          <stop offset="0.62" stop-color="\(kit[0])"/><stop offset="1" stop-color="\(kit[2])"/>
         </radialGradient>
         <radialGradient id="\(id)-halo">
-          <stop offset="0" stop-color="\(stops[1])" stop-opacity="\(theme == .dark ? "0.55" : "0.35")"/>
-          <stop offset="0.6" stop-color="\(stops[2])" stop-opacity="\(theme == .dark ? "0.18" : "0.12")"/>
-          <stop offset="1" stop-color="\(stops[2])" stop-opacity="0"/>
+          <stop offset="0" stop-color="\(kit[0])" stop-opacity="0.45"/><stop offset="0.55" stop-color="\(kit[2])" stop-opacity="0.16"/>
+          <stop offset="1" stop-color="\(kit[2])" stop-opacity="0"/>
         </radialGradient>
         <filter id="\(id)-glow" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="6"/></filter>
 
@@ -76,29 +129,41 @@ enum Wordmark {
         let letters: [(String, String?)] = coloredLetters.map { ($0.0, BrandPalette.color($0.1, theme).hex) } + [("K", nil), ("i", nil), ("t", nil)]
         for (index, (letter, color)) in letters.enumerated() {
             let glyph = glyphs[letter]!
-            let fill = color ?? neutral
-            let isKitI = index == letters.count - 2
+            let stroke = color ?? "url(#\(id)-kit)"
+            let isWand = index == letters.count - 2
             if letter == "o", let color {
                 // 右手食指：克制的點擊光暈。只在筆畫外側（模糊的筆畫＋一圈淡漣漪），字母內部保持乾淨、不影響閱讀
-                body += "<ellipse cx=\"\(fmt(x + 28))\" cy=\"67\" rx=\"28\" ry=\"33\" fill=\"none\" stroke=\"\(color)\" stroke-width=\"\(fmt(stroke))\" stroke-opacity=\"\(theme == .dark ? "0.6" : "0.4")\" filter=\"url(#\(id)-glow)\"/>\n"
-                body += "<ellipse cx=\"\(fmt(x + 28))\" cy=\"67\" rx=\"45\" ry=\"50\" fill=\"none\" stroke=\"\(color)\" stroke-opacity=\"\(theme == .dark ? "0.3" : "0.25")\" stroke-width=\"2.5\"/>\n"
+                body += "<ellipse cx=\"\(fmt(x + 28))\" cy=\"67\" rx=\"28\" ry=\"33\" fill=\"none\" stroke=\"\(color)\" stroke-width=\"\(fmt(Self.stroke))\" stroke-opacity=\"0.45\" filter=\"url(#\(id)-glow)\"/>\n"
+                body += "<ellipse cx=\"\(fmt(x + 28))\" cy=\"67\" rx=\"45\" ry=\"50\" fill=\"none\" stroke=\"\(color)\" stroke-opacity=\"0.35\" stroke-width=\"2.5\"/>\n"
             }
-            body += "<g transform=\"translate(\(fmt(x)) 0)\" fill=\"none\" stroke=\"\(fill)\" stroke-width=\"\(fmt(stroke))\" stroke-linecap=\"round\" stroke-linejoin=\"round\">"
-            body += glyph.paths.map { "<path d=\"\($0)\"/>" }.joined()
-            body += "</g>\n"
-            if let dot = glyph.dot {
-                let cx = x + dot.x
-                if isKitI {
-                    // Kit 的 i：虹彩光點（光暈 → 漸層球 → 細邊 → 高光）；比一般的 i 點大，讓「點下去的一擊」有存在感，但不碰到相鄰的 K、t
-                    body += "<circle cx=\"\(fmt(cx))\" cy=\"10\" r=\"30\" fill=\"url(#\(id)-halo)\"/>\n"
-                    body += "<circle cx=\"\(fmt(cx))\" cy=\"10\" r=\"13.5\" fill=\"url(#\(id)-magic)\" fill-opacity=\"0.92\"/>\n"
-                    body += "<circle cx=\"\(fmt(cx))\" cy=\"10\" r=\"13.5\" fill=\"none\" stroke=\"\(stops[1])\" stroke-opacity=\"\(theme == .dark ? "0.5" : "0.55")\" stroke-width=\"1.5\"/>\n"
-                    body += "<circle cx=\"\(fmt(cx - 4))\" cy=\"6\" r=\"3.5\" fill=\"#FFFFFF\" fill-opacity=\"0.9\"/>\n"
+            if isWand {
+                // Kit 的 i = 魔法棒：略向右傾的棒身，尖端是虹彩光球、四芒星芒與兩顆小星（點下去的神奇一擊）。
+                // 棒身仍在 x 字高範圍、光球在 i 點的位置，所以一眼仍讀成 i
+                body += "<path d=\"M\(fmt(x - 4)) 100L\(fmt(x + 4)) 36\" fill=\"none\" stroke=\"\(stroke)\" stroke-width=\"\(fmt(Self.stroke))\" stroke-linecap=\"round\"/>\n"
+                let cx = x + 6, cy = 10.0
+                body += "<circle cx=\"\(fmt(cx))\" cy=\"\(fmt(cy))\" r=\"32\" fill=\"url(#\(id)-halo)\"/>\n"
+                body += "<path d=\"\(sparkle(cx, cy, 30, 3.2))\" fill=\"\(kit[0])\" fill-opacity=\"0.85\"/>\n"
+                body += "<circle cx=\"\(fmt(cx))\" cy=\"\(fmt(cy))\" r=\"13.5\" fill=\"url(#\(id)-orb)\"/>\n"
+                body += "<circle cx=\"\(fmt(cx))\" cy=\"\(fmt(cy))\" r=\"13.5\" fill=\"none\" stroke=\"\(kit[0])\" stroke-width=\"1.5\"/>\n"
+                body += "<circle cx=\"\(fmt(cx - 4))\" cy=\"\(fmt(cy - 4))\" r=\"3.5\" fill=\"#FFFFFF\" fill-opacity=\"0.9\"/>\n"
+                body += "<path d=\"\(sparkle(cx + 24, cy - 18, 7, 1.6))\" fill=\"\(accent)\"/>\n"
+                body += "<path d=\"\(sparkle(cx - 19, cy - 20, 5, 1.2))\" fill=\"\(kit[2])\"/>\n"
+            } else {
+                let attributes = "fill=\"none\" stroke=\"\(stroke)\" stroke-width=\"\(fmt(Self.stroke))\" stroke-linecap=\"round\" stroke-linejoin=\"round\""
+                if color == nil {
+                    // Kit 的漸層以字標座標（userSpaceOnUse）定義，而 transform 會改變該座標系：直接平移路徑資料，
+                    // 三個字母才會共用同一段連續的漸層
+                    body += "<g \(attributes)>" + glyph.paths.map { "<path d=\"\(offset($0, by: x))\"/>" }.joined()
                 } else {
-                    body += "<circle cx=\"\(fmt(cx))\" cy=\"10\" r=\"\(fmt(dot.radius))\" fill=\"\(fill)\"/>\n"
+                    body += "<g transform=\"translate(\(fmt(x)) 0)\" \(attributes)>" + glyph.paths.map { "<path d=\"\($0)\"/>" }.joined()
+                }
+                body += "</g>\n"
+                if let dot = glyph.dot {
+                    body += "<circle cx=\"\(fmt(x + dot.x))\" cy=\"10\" r=\"\(fmt(dot.radius))\" fill=\"\(color ?? kit[1])\"/>\n"
                 }
             }
             x += glyph.width + gap
+            if index == coloredLetters.count - 1 { x += kitSpacing }
         }
         defs = "<defs>\n" + defs + "</defs>\n"
         return defs + body
