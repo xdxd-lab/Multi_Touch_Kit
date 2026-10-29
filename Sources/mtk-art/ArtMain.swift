@@ -28,8 +28,8 @@ struct ArtCommand {
         }
         try writePNG(BrandIcon.image(size: 1024), to: brand.appendingPathComponent("MultiTouchKit-1024.png"))
         try write(BrandIcon.svg(), to: brand.appendingPathComponent("MultiTouchKit.svg"))
-        try write(BrandIcon.bannerSVG(dark: true), to: brand.appendingPathComponent("banner-dark.svg"))
-        try write(BrandIcon.bannerSVG(dark: false), to: brand.appendingPathComponent("banner-light.svg"))
+        // README banner（自帶深色底板，單一檔案；改檔名可避開 GitHub 的圖片快取）
+        try write(BrandIcon.bannerSVG(), to: brand.appendingPathComponent("banner.svg"))
         // 網頁範例的 favicon：分頁列只有 16–32 px，用小尺寸專屬版（五個點、無擴散圈）；PNG 給不支援 SVG favicon 的情況，
         // apple-touch-icon（180 px，加到 iOS 主畫面等）用完整版
         let web = base.appendingPathComponent("Examples/web")
@@ -41,7 +41,7 @@ struct ArtCommand {
         // Unity：MultiTouchKitManager 元件在 Inspector／Add Component 中的圖示
         try writePNG(BrandIcon.image(size: 128), to: base.appendingPathComponent(
             "Unity/com.xdxd-lab.multitouchkit/Editor/Icons/MultiTouchKitManager.png"))
-        print("字標與背景的 WCAG 對比（大字標準 ≥ 3:1）：\n" + BrandPalette.contrastReport())
+        print("字標與背景的 WCAG 對比（目標 ≥ 4.5:1）：\n" + BrandPalette.contrastReport())
         print("已輸出 \(brand.path)（iconset、1024 PNG、SVG、banner）、Examples/web/favicon.svg、Unity 元件圖示")
     }
 

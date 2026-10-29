@@ -1,20 +1,20 @@
-/* 由 mtk-art 產生（scripts/generate-art.sh），請勿手動修改：MultiTouchKit 品牌色彩（BrandPalette）。
-   兩個變體都是中明度，在深淺兩種背景上都可讀。 */
+/* 由 mtk-art 產生（scripts/generate-art.sh），請勿手動修改：MultiTouchKit 品牌色彩（BrandPalette，v1 定版）。
+   深色主題用深色底的鮮豔色階，淺色主題用白底色階，兩者對各自背景都 ≥ 4.5:1。 */
 :root {
-    --mtk-thumb: #B67A1A;
-    --mtk-index: #2A9B16;
-    --mtk-middle: #1794A0;
-    --mtk-ring: #9770EB;
-    --mtk-little: #E54C91;
-    --mtk-kit: linear-gradient(135deg, #A569EA, #6D7EEA, #1D8FC8, #169786);
+    --mtk-thumb: #E4A744;
+    --mtk-index: #5CE444;
+    --mtk-middle: #44D7E4;
+    --mtk-ring: #8D63E9;
+    --mtk-little: #E4448C;
+    --mtk-kit: linear-gradient(90deg, #F4BA34, #F45434, #F434A4, #B342F5);
 }
 @media (prefers-color-scheme: light) {
   :root {
-      --mtk-thumb: #996716;
-      --mtk-index: #238213;
-      --mtk-middle: #137D86;
-      --mtk-ring: #8152E6;
-      --mtk-little: #D61F71;
-      --mtk-kit: linear-gradient(135deg, #9249E5, #5064E6, #1878A8, #127F71);
+      --mtk-thumb: #A16C17;
+      --mtk-index: #248613;
+      --mtk-middle: #14808A;
+      --mtk-ring: #5C20DF;
+      --mtk-little: #DF2076;
+      --mtk-kit: linear-gradient(90deg, #966C08, #DF2F0C, #DF0C87, #9E0DF2);
   }
 }

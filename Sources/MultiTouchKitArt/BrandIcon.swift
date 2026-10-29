@@ -80,9 +80,9 @@ public enum BrandIcon {
         return RGB(r: r + m, g: g + m, b: b + m)
     }
 
-    /// 指尖色：品牌色彩系統的圖示色階（深色圖示底上的鮮豔版；色相與 README 字標相同）
+    /// 指尖色：品牌色彩系統的深色底色階（鮮豔版；色相與字標相同）
     static func fillColor(_ id: Int) -> RGB {
-        BrandPalette.color(BrandPalette.Finger(rawValue: (id - 1) / 2) ?? .middle, .icon)
+        BrandPalette.color(BrandPalette.Finger(rawValue: (id - 1) / 2) ?? .middle, .dark)
     }
     static func ringColor(_ id: Int) -> RGB { fillColor(id) }
 
@@ -234,19 +234,65 @@ public enum BrandIcon {
         """
     }
 
-    /// README 頂部的 banner：左側圖示、右側字標與說明。`dark` 決定文字顏色（背景透明，配合 GitHub 的深淺色主題）
-    /// README 頂部的 banner：左側圖示、右側字標（Wordmark）與副標題。背景透明，`dark` 決定配色（GitHub 的深淺色主題）
-    public static func bannerSVG(dark: Bool) -> String {
-        let theme: BrandPalette.Theme = dark ? .dark : .light
+    /// banner 深色底板：上緣與下緣的顏色（不比 GitHub 深色底 #0d1117 亮，字標的深色色階因此保有 4.5:1）
+    static let bannerPlateTop = RGB(0x07, 0x08, 0x0D)
+    static let bannerPlateBottom = RGB(0x03, 0x04, 0x07)
+    /// 魔法光暈的最高不透明度（底板上字標附近的光暈都不超過這個值）
+    static let bannerGlowOpacity: CGFloat = 0.06
+
+    /// 底板最亮處（上緣疊上最強的光暈），WCAG 對比以這個顏色保守計算
+    static var bannerPlateBrightest: RGB {
+        let glow = BrandPalette.kitColors(.dark)[2]
+        func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * bannerGlowOpacity }
+        return RGB(r: mix(bannerPlateTop.r, glow.r), g: mix(bannerPlateTop.g, glow.g), b: mix(bannerPlateTop.b, glow.b))
+    }
+
+    /// README 頂部的 banner（v1 定版）：自帶圓角深色底板（延續圖示的深色質感，帶極淡的魔法夜空與光暈），
+    /// 左側圖示、右側字標與副標題。不依賴 GitHub 的深淺色主題，在任何主題下都完整、鮮豔
+    public static func bannerSVG() -> String {
+        let theme = BrandPalette.Theme.dark
         let scale = 0.92
+        // 圖示 256、間距 44、字標，整組水平置中
+        let total = 256 + 44 + Wordmark.width * scale
+        let left = ((1280 - total) / 2).rounded()
+        let markX = left + 300
+        let kit = BrandPalette.kitColors(theme).map(\.hex)
+        // 魔法棒尖端（光暈中心）在 banner 上的位置
+        let wandX = markX + (Wordmark.width - Wordmark.glyphs["t"]!.width - Wordmark.gap - Wordmark.glyphs["i"]!.width + 6) * scale
+        // 夜空的星點：固定位置（可重現），避開字標與圖示
+        let stars: [(Double, Double, Double, Double)] = [
+            (64, 26, 1.4, 0.5), (318, 290, 1.2, 0.4), (612, 30, 1.0, 0.35), (742, 288, 1.6, 0.45), (880, 22, 1.2, 0.4),
+            (1012, 286, 1.0, 0.35), (1146, 40, 1.8, 0.55), (1210, 270, 1.2, 0.4), (1240, 120, 1.0, 0.3), (470, 292, 1.0, 0.3),
+        ]
+        let starSVG = stars.map { "<circle cx=\"\(fmt($0.0))\" cy=\"\(fmt($0.1))\" r=\"\(fmt($0.2))\" fill=\"#FFFFFF\" fill-opacity=\"\(fmt($0.3))\"/>" }.joined()
         return """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" width="1280" height="320">
         <title>MultiTouchKit</title>
-        <g transform="translate(40 32) scale(0.25)">
-        \(svgBody(idPrefix: dark ? "d" : "l"))</g>
-        <g transform="translate(340 82) scale(\(fmt(scale)))">
-        \(Wordmark.svg(theme, id: dark ? "wd" : "wl"))</g>
-        <text x="340" y="232" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', Helvetica, Arial, sans-serif" font-size="28" font-weight="500" fill="\(BrandPalette.subtitle)">macOS 10 點觸控螢幕 · Swift · C · Unity · WebSocket</text>
+        <defs>
+        <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="\(bannerPlateTop.hex)"/><stop offset="1" stop-color="\(bannerPlateBottom.hex)"/>
+        </linearGradient>
+        <radialGradient id="aura-icon" cx="\(fmt(left + 128))" cy="160" r="230" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="\(kit[3])" stop-opacity="\(fmt(bannerGlowOpacity))"/><stop offset="1" stop-color="\(kit[3])" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="aura-wand" cx="\(fmt(wandX))" cy="70" r="260" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="\(kit[2])" stop-opacity="\(fmt(bannerGlowOpacity))"/><stop offset="0.5" stop-color="\(kit[0])" stop-opacity="\(fmt(bannerGlowOpacity * 0.35))"/>
+          <stop offset="1" stop-color="\(kit[0])" stop-opacity="0"/>
+        </radialGradient>
+        <clipPath id="plate-clip"><rect x="0" y="0" width="1280" height="320" rx="36"/></clipPath>
+        </defs>
+        <g clip-path="url(#plate-clip)">
+        <rect width="1280" height="320" fill="url(#plate)"/>
+        <rect width="1280" height="320" fill="url(#aura-icon)"/>
+        <rect width="1280" height="320" fill="url(#aura-wand)"/>
+        \(starSVG)
+        </g>
+        <rect x="0.75" y="0.75" width="1278.5" height="318.5" rx="35.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.1" stroke-width="1.5"/>
+        <g transform="translate(\(fmt(left)) 32) scale(0.25)">
+        \(svgBody(idPrefix: "b"))</g>
+        <g transform="translate(\(fmt(markX)) 82) scale(\(fmt(scale)))">
+        \(Wordmark.svg(theme, id: "w"))</g>
+        <text x="\(fmt(markX))" y="232" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', Helvetica, Arial, sans-serif" font-size="28" font-weight="500" fill="\(theme.muted)">macOS 10 點觸控螢幕 · Swift · C · Unity · WebSocket</text>
         </svg>
 
         """
