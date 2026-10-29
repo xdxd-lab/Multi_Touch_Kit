@@ -5,18 +5,25 @@
     <stop offset="0" stop-color="#24262E"/><stop offset="1" stop-color="#0B0C10"/>
   </linearGradient>
   <clipPath id="mtk-clip"><rect x="100" y="100" width="824" height="824" rx="185.4"/></clipPath>
-  <filter id="mtk-glow1" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="36"/></filter>
-  <filter id="mtk-glow5" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="36"/></filter>
-  <filter id="mtk-glow9" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="36"/></filter>
+  <filter id="mtk-glow1" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="24"/></filter>
+  <filter id="mtk-glow3" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="23.4"/></filter>
+  <filter id="mtk-glow5" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="24.6"/></filter>
+  <filter id="mtk-glow7" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="23.4"/></filter>
+  <filter id="mtk-glow9" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="22.2"/></filter>
+<filter id="mtk-ringglow" x="-0.5" y="-0.5" width="2" height="2"><feGaussianBlur stdDeviation="9"/></filter>
 </defs>
 <rect x="100" y="100" width="824" height="824" rx="185.4" fill="url(#mtk-bg)"/>
 <g clip-path="url(#mtk-clip)">
-  <circle cx="318" cy="600" r="120" fill="#E1A647" fill-opacity="0.45" filter="url(#mtk-glow1)"/>
-  <circle cx="318" cy="600" r="120" fill="#E1A647" fill-opacity="0.85"/>
-  <circle cx="512" cy="400" r="120" fill="#47D4E1" fill-opacity="0.45" filter="url(#mtk-glow5)"/>
-  <circle cx="512" cy="400" r="120" fill="#47D4E1" fill-opacity="0.85"/>
-  <circle cx="706" cy="600" r="120" fill="#E1478C" fill-opacity="0.45" filter="url(#mtk-glow9)"/>
-  <circle cx="706" cy="600" r="120" fill="#E1478C" fill-opacity="0.85"/>
+  <circle cx="300" cy="706" r="80" fill="#E4A744" fill-opacity="0.45" filter="url(#mtk-glow1)"/>
+  <circle cx="300" cy="706" r="80" fill="#E4A744" fill-opacity="0.85"/>
+  <circle cx="330" cy="488" r="78" fill="#5CE444" fill-opacity="0.45" filter="url(#mtk-glow3)"/>
+  <circle cx="330" cy="488" r="78" fill="#5CE444" fill-opacity="0.85"/>
+  <circle cx="512" cy="328" r="82" fill="#44D7E4" fill-opacity="0.45" filter="url(#mtk-glow5)"/>
+  <circle cx="512" cy="328" r="82" fill="#44D7E4" fill-opacity="0.85"/>
+  <circle cx="694" cy="488" r="78" fill="#8D63E9" fill-opacity="0.45" filter="url(#mtk-glow7)"/>
+  <circle cx="694" cy="488" r="78" fill="#8D63E9" fill-opacity="0.85"/>
+  <circle cx="772" cy="700" r="74" fill="#E4448C" fill-opacity="0.45" filter="url(#mtk-glow9)"/>
+  <circle cx="772" cy="700" r="74" fill="#E4448C" fill-opacity="0.85"/>
 </g>
 <rect x="101.5" y="101.5" width="821" height="821" rx="183.9" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="3"/>
 </svg>

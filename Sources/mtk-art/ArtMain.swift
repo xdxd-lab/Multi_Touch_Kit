@@ -23,14 +23,21 @@ struct ArtCommand {
         for (points, scale) in [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)] {
             let pixels = points * scale
             let name = scale == 1 ? "icon_\(points)x\(points).png" : "icon_\(points)x\(points)@2x.png"
-            try writePNG(BrandIcon.image(size: pixels, compact: pixels <= 32), to: iconset.appendingPathComponent(name))
+            // 16、32 pt（含 @2x）用小尺寸專屬版：系統設定的清單、Finder 列表顯示的就是這些尺寸
+            try writePNG(BrandIcon.image(size: pixels, compact: points <= 32), to: iconset.appendingPathComponent(name))
         }
         try writePNG(BrandIcon.image(size: 1024), to: brand.appendingPathComponent("MultiTouchKit-1024.png"))
         try write(BrandIcon.svg(), to: brand.appendingPathComponent("MultiTouchKit.svg"))
         try write(BrandIcon.bannerSVG(dark: true), to: brand.appendingPathComponent("banner-dark.svg"))
         try write(BrandIcon.bannerSVG(dark: false), to: brand.appendingPathComponent("banner-light.svg"))
-        // 網頁範例的 favicon（小尺寸用精簡版）
-        try write(BrandIcon.svg(compact: true), to: base.appendingPathComponent("Examples/web/favicon.svg"))
+        // 網頁範例的 favicon：分頁列只有 16–32 px，用小尺寸專屬版（五個點、無擴散圈）；PNG 給不支援 SVG favicon 的情況，
+        // apple-touch-icon（180 px，加到 iOS 主畫面等）用完整版
+        let web = base.appendingPathComponent("Examples/web")
+        try write(BrandIcon.svg(compact: true), to: web.appendingPathComponent("favicon.svg"))
+        try writePNG(BrandIcon.image(size: 16, compact: true), to: web.appendingPathComponent("favicon-16.png"))
+        try writePNG(BrandIcon.image(size: 32, compact: true), to: web.appendingPathComponent("favicon-32.png"))
+        try writePNG(BrandIcon.image(size: 180), to: web.appendingPathComponent("apple-touch-icon.png"))
+        try write(BrandPalette.css(), to: web.appendingPathComponent("brand.css"))
         // Unity：MultiTouchKitManager 元件在 Inspector／Add Component 中的圖示
         try writePNG(BrandIcon.image(size: 128), to: base.appendingPathComponent(
             "Unity/com.xdxd-lab.multitouchkit/Editor/Icons/MultiTouchKitManager.png"))
