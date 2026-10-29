@@ -1,14 +1,12 @@
 import CoreGraphics
 import Foundation
 
-/// 品牌色彩系統：五根手指各一個色相（mtk-viewer 的「觸點 id × 37°」，取 id 1、3、5、7、9），
-/// 依用途調整明度；色相不變，所以各處看起來是同一套顏色。
+/// 品牌色彩系統（v1 定版）：五根手指各一個色相（mtk-viewer 的「觸點 id × 37°」，取 id 1、3、5、7、9），
+/// 依背景調整明度；色相不變，所以各處看起來是同一套顏色。
 ///
-/// README banner 的深色／淺色變體**都必須在兩種背景上可讀**：GitHub 依頁面主題與作業系統主題決定送出哪個
-/// `<picture>` 變體，兩者不一致時，深色變體可能出現在白底上（實際發生過：Kit 的白字在淺色頁面幾乎看不見）。
-/// 與白底（#ffffff）與 GitHub 深色底（#0d1117）都達到 3:1 的相對亮度 Y 只有 0.117–0.30 這一段，
-/// 所以兩個變體都取中明度：深色變體 Y 0.24、淺色變體 Y 0.165（各自略偏向自己的背景）。
-/// 圖示永遠在深色圖示底上，使用較鮮豔的一組（`.icon`）。
+/// 只有兩級：`.dark` 是深色底上的鮮豔色階（圖示、README banner 的深色底板、網頁深色主題），
+/// `.light` 是白底上的色階（網頁淺色主題）。README banner 自帶深色底板，不依賴 GitHub 的深淺色主題，
+/// 所以不需要在兩種背景上都可讀的中明度折衷。
 public enum BrandPalette {
     public enum Finger: Int, CaseIterable, Sendable {
         case thumb, index, middle, ring, little
@@ -19,53 +17,56 @@ public enum BrandPalette {
     }
 
     public enum Theme: Sendable, CaseIterable {
-        /// banner 深色變體（主要給 #0d1117，白底上也可讀）
+        /// 深色底（#0d1117 或更暗）：鮮豔、高明度，對比 ≥ 4.5:1
         case dark
-        /// banner 淺色變體（主要給 #ffffff，深色底上也可讀）
+        /// 白底：飽和、較深，對比 ≥ 4.5:1
         case light
-        /// 圖示：深色圖示底上的鮮豔色階
-        case icon
 
-        /// 目標相對亮度（banner 變體）
-        var targetLuminance: Double { self == .dark ? 0.24 : 0.165 }
+        public var foreground: String { self == .dark ? "#F0F3F6" : "#1F2328" }
+        public var muted: String { self == .dark ? "#9198A1" : "#59636E" }
     }
 
     static let white = BrandIcon.RGB(0xFF, 0xFF, 0xFF)
     static let githubDark = BrandIcon.RGB(0x0D, 0x11, 0x17)
+    /// 五指的飽和度
     static let saturation = 0.75
+    static let minimumContrast = 4.5
 
     public static func hue(_ finger: Finger) -> CGFloat { BrandIcon.hue(finger.touchID) }
 
-    /// 這根手指在該用途的顏色
+    /// 這根手指在該背景的顏色
     static func color(_ finger: Finger, _ theme: Theme) -> BrandIcon.RGB {
         color(hue: hue(finger), theme)
     }
 
-    /// 任意色相在該用途的顏色（Kit 的虹彩漸層也用它，所以與五指同樣兩邊可讀）
-    static func color(hue: CGFloat, _ theme: Theme) -> BrandIcon.RGB {
+    /// 任意色相在該背景的顏色（Kit 的漸層也用它，所以與五指同樣達到 4.5:1）
+    static func color(hue: CGFloat, _ theme: Theme, saturation: Double = saturation) -> BrandIcon.RGB {
         switch theme {
-        case .icon:
-            // 深色圖示底：從 L 0.58 往亮調到對 #0d1117 達 4.5:1
+        case .dark:
+            // 從 L 0.58 往亮調到對 #0d1117 達 4.5:1
             var l = 0.58
             var c = BrandIcon.hsl(hue, saturation, l)
-            while contrast(c, githubDark) < 4.5, l < 0.85 {
+            while contrast(c, githubDark) < minimumContrast, l < 0.85 {
                 l += 0.01
                 c = BrandIcon.hsl(hue, saturation, l)
             }
             return c
-        case .dark, .light:
-            // 二分搜尋明度，讓相對亮度等於目標值
-            var low = 0.05, high = 0.95
-            for _ in 0..<40 {
-                let mid = (low + high) / 2
-                if luminance(BrandIcon.hsl(hue, saturation, mid)) < theme.targetLuminance { low = mid } else { high = mid }
+        case .light:
+            // 從 L 0.5 往暗調到對白底達 4.5:1
+            var l = 0.5
+            var c = BrandIcon.hsl(hue, saturation, l)
+            while contrast(c, white) < minimumContrast, l > 0.15 {
+                l -= 0.01
+                c = BrandIcon.hsl(hue, saturation, l)
             }
-            return BrandIcon.hsl(hue, saturation, (low + high) / 2)
+            return c
         }
     }
 
-    /// 副標題的中性灰（兩種背景都可讀；28 pt 屬大字）
-    public static let subtitle = "#7D8590"
+    /// Kit 漸層的色階
+    static func kitColors(_ theme: Theme) -> [BrandIcon.RGB] {
+        Wordmark.kitHues.map { color(hue: $0, theme, saturation: Wordmark.kitSaturation) }
+    }
 
     /// WCAG 2.x 對比值
     static func contrast(_ a: BrandIcon.RGB, _ b: BrandIcon.RGB) -> Double {
@@ -86,16 +87,16 @@ public enum BrandPalette {
         return BrandIcon.RGB((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF)
     }
 
-    /// 網頁用的 CSS 變數（Examples/web/brand.css）：五指色與 Kit 漸層，依 prefers-color-scheme 切換兩個變體
+    /// 網頁用的 CSS 變數（Examples/web/brand.css）：五指色與 Kit 漸層，依 prefers-color-scheme 切換
     public static func css() -> String {
         func block(_ theme: Theme) -> String {
             let fingers = Finger.allCases.map { "--mtk-\(["thumb", "index", "middle", "ring", "little"][$0.rawValue]): \(color($0, theme).hex);" }
-            let kit = Wordmark.kitHues.map { color(hue: $0, theme).hex }
-            return (fingers + ["--mtk-kit: linear-gradient(135deg, \(kit.joined(separator: ", ")));"]).map { "    " + $0 }.joined(separator: "\n")
+            let kit = kitColors(theme).map(\.hex)
+            return (fingers + ["--mtk-kit: linear-gradient(90deg, \(kit.joined(separator: ", ")));"]).map { "    " + $0 }.joined(separator: "\n")
         }
         return """
-        /* 由 mtk-art 產生（scripts/generate-art.sh），請勿手動修改：MultiTouchKit 品牌色彩（BrandPalette）。
-           兩個變體都是中明度，在深淺兩種背景上都可讀。 */
+        /* 由 mtk-art 產生（scripts/generate-art.sh），請勿手動修改：MultiTouchKit 品牌色彩（BrandPalette，v1 定版）。
+           深色主題用深色底的鮮豔色階，淺色主題用白底色階，兩者對各自背景都 ≥ 4.5:1。 */
         :root {
         \(block(.dark))
         }
@@ -108,28 +109,32 @@ public enum BrandPalette {
         """
     }
 
-    /// banner 兩個變體 × 兩種背景的 WCAG 對比（mtk-art 輸出）：每個字母、Kit 漸層的每個色階、魔法棒的星芒、副標題
+    /// WCAG 對比表（mtk-art 輸出）：banner 對深色底板最亮處、網頁淺色主題對白底
     public static func contrastReport() -> String {
-        var lines = ["| 元素 | 深色變體 | 對白底 | 對 #0d1117 | 淺色變體 | 對白底 | 對 #0d1117 |", "|---|---|---|---|---|---|---|"]
-        var minimum: [String: Double] = [:]
-        func row(_ name: String, _ d: BrandIcon.RGB, _ l: BrandIcon.RGB) {
-            let values = [contrast(d, white), contrast(d, githubDark), contrast(l, white), contrast(l, githubDark)]
-            for (key, v) in zip(["深色變體／白底", "深色變體／深色底", "淺色變體／白底", "淺色變體／深色底"], values) {
-                minimum[key] = min(minimum[key] ?? .infinity, v)
+        let plate = BrandIcon.bannerPlateBrightest
+        var lines = ["| 元素 | banner／網頁深色 | 對 banner 底板最亮處 \(plate.hex) | 對 #0d1117 | 網頁淺色 | 對白底 |", "|---|---|---|---|---|---|"]
+        var worstBanner = Double.infinity, worstLight = Double.infinity
+        func row(_ name: String, _ d: BrandIcon.RGB, _ l: BrandIcon.RGB?) {
+            let onPlate = contrast(d, plate)
+            worstBanner = min(worstBanner, onPlate)
+            var line = String(format: "| %@ | %@ | %.2f | %.2f |", name, d.hex, onPlate, contrast(d, githubDark))
+            if let l {
+                worstLight = min(worstLight, contrast(l, white))
+                line += String(format: " %@ | %.2f |", l.hex, contrast(l, white))
+            } else {
+                line += " — | — |"
             }
-            lines.append(String(format: "| %@ | %@ | %.2f | %.2f | %@ | %.2f | %.2f |", name, d.hex, values[0], values[1], l.hex, values[2], values[3]))
+            lines.append(line)
         }
         for (letter, finger) in Wordmark.coloredLetters {
             row("\(letter)（\(finger.name)）", color(finger, .dark), color(finger, .light))
         }
-        for (i, hue) in Wordmark.kitHues.enumerated() {
-            row("Kit 漸層色階 \(i + 1)", color(hue: hue, .dark), color(hue: hue, .light))
+        for (i, (d, l)) in zip(kitColors(.dark), kitColors(.light)).enumerated() {
+            row("Kit 漸層色階 \(i + 1)", d, l)
         }
-        row("魔法棒點綴（洋紅）", color(hue: Wordmark.sparkleHue, .dark), color(hue: Wordmark.sparkleHue, .light))
-        row("副標題", rgb(hex: subtitle), rgb(hex: subtitle))
+        row("副標題", rgb(hex: Theme.dark.muted), nil)
         lines.append("")
-        lines.append("最低值：" + ["深色變體／白底", "深色變體／深色底", "淺色變體／白底", "淺色變體／深色底"]
-            .map { String(format: "%@ %.2f", $0, minimum[$0] ?? 0) }.joined(separator: "、"))
+        lines.append(String(format: "最低值：banner 對底板 %.2f、網頁淺色對白底 %.2f", worstBanner, worstLight))
         return lines.joined(separator: "\n")
     }
 }

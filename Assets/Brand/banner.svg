@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" width="1280" height="320">
+<title>MultiTouchKit</title>
+<defs>
+<linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#07080D"/><stop offset="1" stop-color="#030407"/>
+</linearGradient>
+<radialGradient id="aura-icon" cx="273" cy="160" r="230" gradientUnits="userSpaceOnUse">
+  <stop offset="0" stop-color="#B342F5" stop-opacity="0.06"/><stop offset="1" stop-color="#B342F5" stop-opacity="0"/>
+</radialGradient>
+<radialGradient id="aura-wand" cx="1092.68" cy="70" r="260" gradientUnits="userSpaceOnUse">
+  <stop offset="0" stop-color="#F434A4" stop-opacity="0.06"/><stop offset="0.5" stop-color="#F4BA34" stop-opacity="0.02"/>
+  <stop offset="1" stop-color="#F4BA34" stop-opacity="0"/>
+</radialGradient>
+<clipPath id="plate-clip"><rect x="0" y="0" width="1280" height="320" rx="36"/></clipPath>
+</defs>
+<g clip-path="url(#plate-clip)">
+<rect width="1280" height="320" fill="url(#plate)"/>
+<rect width="1280" height="320" fill="url(#aura-icon)"/>
+<rect width="1280" height="320" fill="url(#aura-wand)"/>
+<circle cx="64" cy="26" r="1.4" fill="#FFFFFF" fill-opacity="0.5"/><circle cx="318" cy="290" r="1.2" fill="#FFFFFF" fill-opacity="0.4"/><circle cx="612" cy="30" r="1" fill="#FFFFFF" fill-opacity="0.35"/><circle cx="742" cy="288" r="1.6" fill="#FFFFFF" fill-opacity="0.45"/><circle cx="880" cy="22" r="1.2" fill="#FFFFFF" fill-opacity="0.4"/><circle cx="1012" cy="286" r="1" fill="#FFFFFF" fill-opacity="0.35"/><circle cx="1146" cy="40" r="1.8" fill="#FFFFFF" fill-opacity="0.55"/><circle cx="1210" cy="270" r="1.2" fill="#FFFFFF" fill-opacity="0.4"/><circle cx="1240" cy="120" r="1" fill="#FFFFFF" fill-opacity="0.3"/><circle cx="470" cy="292" r="1" fill="#FFFFFF" fill-opacity="0.3"/>
+</g>
+<rect x="0.75" y="0.75" width="1278.5" height="318.5" rx="35.25" fill="none" stroke="#FFFFFF" stroke-opacity="0.1" stroke-width="1.5"/>
+<g transform="translate(145 32) scale(0.25)">
+<defs>
+  <linearGradient id="b-bg" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#24262E"/><stop offset="1" stop-color="#0B0C10"/>
+  </linearGradient>
+  <clipPath id="b-clip"><rect x="100" y="100" width="824" height="824" rx="185.4"/></clipPath>
+  <filter id="b-glow1" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="21"/></filter>
+  <filter id="b-glow3" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="19.8"/></filter>
+  <filter id="b-glow5" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="21.6"/></filter>
+  <filter id="b-glow7" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="19.8"/></filter>
+  <filter id="b-glow9" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="17.4"/></filter>
+<filter id="b-ringglow" x="-0.5" y="-0.5" width="2" height="2"><feGaussianBlur stdDeviation="9"/></filter>
+</defs>
+<rect x="100" y="100" width="824" height="824" rx="185.4" fill="url(#b-bg)"/>
+<g clip-path="url(#b-clip)">
+  <circle cx="372" cy="501" r="145.2" fill="none" stroke="#5CE444" stroke-opacity="0.29" stroke-width="14" filter="url(#b-ringglow)"/>
+  <circle cx="372" cy="501" r="145.2" fill="none" stroke="#5CE444" stroke-opacity="0.29" stroke-width="14"/>
+  <circle cx="372" cy="501" r="105.6" fill="none" stroke="#5CE444" stroke-opacity="0.62" stroke-width="14" filter="url(#b-ringglow)"/>
+  <circle cx="372" cy="501" r="105.6" fill="none" stroke="#5CE444" stroke-opacity="0.62" stroke-width="14"/>
+  <circle cx="284" cy="695" r="70" fill="#E4A744" fill-opacity="0.45" filter="url(#b-glow1)"/>
+  <circle cx="284" cy="695" r="70" fill="#E4A744" fill-opacity="0.85"/>
+  <circle cx="372" cy="501" r="66" fill="#5CE444" fill-opacity="0.45" filter="url(#b-glow3)"/>
+  <circle cx="372" cy="501" r="66" fill="#5CE444" fill-opacity="0.85"/>
+  <circle cx="512" cy="417" r="72" fill="#44D7E4" fill-opacity="0.45" filter="url(#b-glow5)"/>
+  <circle cx="512" cy="417" r="72" fill="#44D7E4" fill-opacity="0.85"/>
+  <circle cx="652" cy="501" r="66" fill="#8D63E9" fill-opacity="0.45" filter="url(#b-glow7)"/>
+  <circle cx="652" cy="501" r="66" fill="#8D63E9" fill-opacity="0.85"/>
+  <circle cx="744" cy="641" r="58" fill="#E4448C" fill-opacity="0.45" filter="url(#b-glow9)"/>
+  <circle cx="744" cy="641" r="58" fill="#E4448C" fill-opacity="0.85"/>
+</g>
+<rect x="101.5" y="101.5" width="821" height="821" rx="183.9" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="3"/>
+</g>
+<g transform="translate(445 82) scale(0.92)">
+<defs>
+<linearGradient id="w-kit" gradientUnits="userSpaceOnUse" x1="615" y1="0" x2="757" y2="0">
+  <stop offset="0.05" stop-color="#F4BA34"/><stop offset="0.37" stop-color="#F45434"/>
+  <stop offset="0.68" stop-color="#F434A4"/><stop offset="0.95" stop-color="#B342F5"/>
+</linearGradient>
+<radialGradient id="w-orb" cx="0.38" cy="0.32" r="0.75">
+  <stop offset="0" stop-color="#FFFFFF"/><stop offset="0.25" stop-color="#F4BA34"/>
+  <stop offset="0.6" stop-color="#F45434"/><stop offset="1" stop-color="#F434A4"/>
+</radialGradient>
+<radialGradient id="w-halo">
+  <stop offset="0" stop-color="#F4BA34" stop-opacity="0.5"/><stop offset="0.55" stop-color="#F434A4" stop-opacity="0.18"/>
+  <stop offset="1" stop-color="#B342F5" stop-opacity="0"/>
+</radialGradient>
+<filter id="w-glow" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="6"/></filter>
+</defs>
+<g transform="translate(0 0)" fill="none" stroke="#E4448C" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M0 100V0L32 66L64 0V100"/></g>
+<g transform="translate(86 0)" fill="none" stroke="#8D63E9" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M0 34V78A22 22 0 0 0 44 78V34"/><path d="M44 34V100"/></g>
+<g transform="translate(152 0)" fill="none" stroke="#44D7E4" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M0 0V100"/></g>
+<g transform="translate(174 0)" fill="none" stroke="#5CE444" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6V84A16 16 0 0 0 26 100H30"/><path d="M0 34H30"/></g>
+<g transform="translate(226 0)" fill="none" stroke="#E4A744" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M0 34V100"/></g>
+<circle cx="226" cy="10" r="9" fill="#E4A744"/>
+<g transform="translate(248 0)" fill="none" stroke="#E4A744" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M0 0H64"/><path d="M32 0V100"/></g>
+<ellipse cx="362" cy="67" rx="28" ry="33" fill="none" stroke="#5CE444" stroke-width="14" stroke-opacity="0.45" filter="url(#w-glow)"/>
+<ellipse cx="362" cy="67" rx="45" ry="50" fill="none" stroke="#5CE444" stroke-opacity="0.35" stroke-width="2.5"/>
+<g transform="translate(334 0)" fill="none" stroke="#5CE444" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M56 67A28 33 0 1 0 0 67A28 33 0 1 0 56 67Z"/></g>
+<g transform="translate(412 0)" fill="none" stroke="#44D7E4" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M0 34V78A22 22 0 0 0 44 78V34"/><path d="M44 34V100"/></g>
+<g transform="translate(478 0)" fill="none" stroke="#8D63E9" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M49.45 45.79A28 33 0 1 0 49.45 88.21"/></g>
+<g transform="translate(550 0)" fill="none" stroke="#E4448C" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M0 0V100"/><path d="M0 56A22 22 0 0 1 44 56V100"/></g>
+<g fill="none" stroke="url(#w-kit)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M622 0V100"/><path d="M672 0L626 60"/><path d="M644 38L676 100"/></g>
+<path d="M694 100L702 36" fill="none" stroke="url(#w-kit)" stroke-width="14" stroke-linecap="round"/>
+<circle cx="704" cy="10" r="32" fill="url(#w-halo)"/>
+<path d="M704 -20L707.2 6.8L734 10L707.2 13.2L704 40L700.8 13.2L674 10L700.8 6.8Z" fill="#F4BA34" fill-opacity="0.9"/>
+<circle cx="704" cy="10" r="13.5" fill="url(#w-orb)"/>
+<circle cx="704" cy="10" r="13.5" fill="none" stroke="#F45434" stroke-width="1.5"/>
+<circle cx="700" cy="6" r="3.5" fill="#FFFFFF" fill-opacity="0.9"/>
+<path d="M728 -15L729.6 -9.6L735 -8L729.6 -6.4L728 -1L726.4 -6.4L721 -8L726.4 -9.6Z" fill="#F45434"/>
+<path d="M685 -15L686.2 -11.2L690 -10L686.2 -8.8L685 -5L683.8 -8.8L680 -10L683.8 -11.2Z" fill="#B342F5"/>
+<g fill="none" stroke="url(#w-kit)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><path d="M730 6V84A16 16 0 0 0 746 100H750"/><path d="M720 34H750"/></g>
+</g>
+<text x="445" y="232" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', Helvetica, Arial, sans-serif" font-size="28" font-weight="500" fill="#9198A1">macOS 10 點觸控螢幕 · Swift · C · Unity · WebSocket</text>
+</svg>

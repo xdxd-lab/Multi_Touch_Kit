@@ -6,8 +6,8 @@ import Foundation
 /// 概念：「MultiTouch」10 個字母 = 10 根手指。Multi = 左手（M 小指 → i 拇指），Touch = 右手（T 拇指 → h 小指），
 /// 左右鏡像同色：M↔h 小指、u↔c 無名指、l↔u 中指、t↔o 食指、i↔T 拇指，顏色與圖示的五個指尖相同（BrandPalette）。
 /// 右手食指的「o」帶一點點擊光暈，呼應圖示中按下的那根食指。
-/// 「Kit」使用虹彩漸層（與魔法棒光點同一組色），i 是魔法棒：棒身加上尖端的虹彩光球與星芒，象徵節奏遊戲中點下去的那一擊。
-/// 所有顏色都取中明度，深淺兩種背景都可讀（見 BrandPalette）。
+/// 「Kit」使用暖色魔法漸層（與魔法棒光點同一組色），i 是魔法棒：棒身加上尖端的虹彩光球與星芒，象徵節奏遊戲中點下去的那一擊。
+/// 顏色依背景取 BrandPalette 的深色或淺色色階。
 ///
 /// 座標：字母頂端 y = 0、基線 y = 100、x 字高頂端 y = 34，筆畫寬 14、圓頭圓角。
 enum Wordmark {
@@ -42,11 +42,11 @@ enum Wordmark {
         ("T", .thumb), ("o", .index), ("u", .middle), ("c", .ring), ("h", .little),
     ]
 
-    /// Kit 虹彩漸層的色相（藍紫 → 藍 → 天藍 → 青綠）；明度與五指相同（兩種背景都可讀）。
-    /// 起點不用洋紅：緊鄰的 h（小指粉）同色系，h 與 K 會糊成一塊、看不出 MultiTouch 與 Kit 的分界
-    static let kitHues: [CGFloat] = [268, 232, 200, 172]
-    /// 魔法棒光球與小星芒的點綴色（洋紅）
-    static let sparkleHue: CGFloat = 325
+    /// Kit 暖色魔法漸層的色相（琥珀金 → 珊瑚 → 洋紅 → 紫），從 K 到 t 明顯變化。
+    /// 起點用琥珀金：緊鄰的 h 是小指粉，K 若從粉紅系起始，h 與 K 會糊成一塊、看不出 MultiTouch 與 Kit 的分界
+    static let kitHues: [CGFloat] = [42, 10, 325, 278]
+    /// Kit 漸層比五指更飽和，讓魔法感更強烈
+    static let kitSaturation = 0.9
     /// MultiTouch 與 Kit 之間額外的字距
     static let kitSpacing = 6.0
 
@@ -103,23 +103,22 @@ enum Wordmark {
 
     /// 字標的 SVG 片段（左上角在 (0, 0)，高 100）；`id` 讓深淺兩份 SVG 的 defs 不衝突
     static func svg(_ theme: BrandPalette.Theme, id: String) -> String {
-        let kit = kitHues.map { BrandPalette.color(hue: $0, theme).hex }
+        let kit = BrandPalette.kitColors(theme).map(\.hex)
         // Kit 三個字母的位置（漸層橫跨整個 Kit）
         let kitStart = coloredLetters.map { glyphs[$0.0]!.width + gap }.reduce(0, +) + kitSpacing
-        let accent = BrandPalette.color(hue: sparkleHue, theme).hex
         let kitEnd = kitStart + glyphs["K"]!.width + gap + glyphs["i"]!.width + gap + glyphs["t"]!.width
         var defs = """
-        <linearGradient id="\(id)-kit" gradientUnits="userSpaceOnUse" x1="\(fmt(kitStart - 7))" y1="0" x2="\(fmt(kitEnd + 7))" y2="100">
-          <stop offset="0" stop-color="\(kit[0])"/><stop offset="0.38" stop-color="\(kit[1])"/>
-          <stop offset="0.7" stop-color="\(kit[2])"/><stop offset="1" stop-color="\(kit[3])"/>
+        <linearGradient id="\(id)-kit" gradientUnits="userSpaceOnUse" x1="\(fmt(kitStart - 7))" y1="0" x2="\(fmt(kitEnd + 7))" y2="0">
+          <stop offset="0.05" stop-color="\(kit[0])"/><stop offset="0.37" stop-color="\(kit[1])"/>
+          <stop offset="0.68" stop-color="\(kit[2])"/><stop offset="0.95" stop-color="\(kit[3])"/>
         </linearGradient>
         <radialGradient id="\(id)-orb" cx="0.38" cy="0.32" r="0.75">
-          <stop offset="0" stop-color="#FFFFFF"/><stop offset="0.28" stop-color="\(accent)"/>
-          <stop offset="0.62" stop-color="\(kit[0])"/><stop offset="1" stop-color="\(kit[2])"/>
+          <stop offset="0" stop-color="#FFFFFF"/><stop offset="0.25" stop-color="\(kit[0])"/>
+          <stop offset="0.6" stop-color="\(kit[1])"/><stop offset="1" stop-color="\(kit[2])"/>
         </radialGradient>
         <radialGradient id="\(id)-halo">
-          <stop offset="0" stop-color="\(kit[0])" stop-opacity="0.45"/><stop offset="0.55" stop-color="\(kit[2])" stop-opacity="0.16"/>
-          <stop offset="1" stop-color="\(kit[2])" stop-opacity="0"/>
+          <stop offset="0" stop-color="\(kit[0])" stop-opacity="0.5"/><stop offset="0.55" stop-color="\(kit[2])" stop-opacity="0.18"/>
+          <stop offset="1" stop-color="\(kit[3])" stop-opacity="0"/>
         </radialGradient>
         <filter id="\(id)-glow" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="6"/></filter>
 
@@ -142,12 +141,12 @@ enum Wordmark {
                 body += "<path d=\"M\(fmt(x - 4)) 100L\(fmt(x + 4)) 36\" fill=\"none\" stroke=\"\(stroke)\" stroke-width=\"\(fmt(Self.stroke))\" stroke-linecap=\"round\"/>\n"
                 let cx = x + 6, cy = 10.0
                 body += "<circle cx=\"\(fmt(cx))\" cy=\"\(fmt(cy))\" r=\"32\" fill=\"url(#\(id)-halo)\"/>\n"
-                body += "<path d=\"\(sparkle(cx, cy, 30, 3.2))\" fill=\"\(kit[0])\" fill-opacity=\"0.85\"/>\n"
+                body += "<path d=\"\(sparkle(cx, cy, 30, 3.2))\" fill=\"\(kit[0])\" fill-opacity=\"0.9\"/>\n"
                 body += "<circle cx=\"\(fmt(cx))\" cy=\"\(fmt(cy))\" r=\"13.5\" fill=\"url(#\(id)-orb)\"/>\n"
-                body += "<circle cx=\"\(fmt(cx))\" cy=\"\(fmt(cy))\" r=\"13.5\" fill=\"none\" stroke=\"\(kit[0])\" stroke-width=\"1.5\"/>\n"
+                body += "<circle cx=\"\(fmt(cx))\" cy=\"\(fmt(cy))\" r=\"13.5\" fill=\"none\" stroke=\"\(kit[1])\" stroke-width=\"1.5\"/>\n"
                 body += "<circle cx=\"\(fmt(cx - 4))\" cy=\"\(fmt(cy - 4))\" r=\"3.5\" fill=\"#FFFFFF\" fill-opacity=\"0.9\"/>\n"
-                body += "<path d=\"\(sparkle(cx + 24, cy - 18, 7, 1.6))\" fill=\"\(accent)\"/>\n"
-                body += "<path d=\"\(sparkle(cx - 19, cy - 20, 5, 1.2))\" fill=\"\(kit[2])\"/>\n"
+                body += "<path d=\"\(sparkle(cx + 24, cy - 18, 7, 1.6))\" fill=\"\(kit[1])\"/>\n"
+                body += "<path d=\"\(sparkle(cx - 19, cy - 20, 5, 1.2))\" fill=\"\(kit[3])\"/>\n"
             } else {
                 let attributes = "fill=\"none\" stroke=\"\(stroke)\" stroke-width=\"\(fmt(Self.stroke))\" stroke-linecap=\"round\" stroke-linejoin=\"round\""
                 if color == nil {
