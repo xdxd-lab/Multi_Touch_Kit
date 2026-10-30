@@ -74,7 +74,7 @@ mtk_stop();
 
 所有欄位依自然對齊排列，大小固定（標頭與各語言綁定都會檢查）。
 
-`MTKConfig`（32 bytes）：`struct_size`、`vendor_id`／`product_id`（0 = 不限）、`exclusive`（1 = 獨占，預設）、`init_multitouch`（1 = 依 Windows 流程初始化多點模式，預設；ILITEK 必須）、`report_stationary`（0 = 佇列不放 stationary，預設）、`queue_capacity`（0 = 4096）、`stale_timeout_ms`（長時間不動的觸點視為誤觸並取消：0 = 預設 30000 ms、-1 = 關閉、> 0 為毫秒；見「誤觸」）。
+`MTKConfig`（32 bytes）：`struct_size`、`vendor_id`／`product_id`（0 = 不限）、`exclusive`（1 = 獨占，預設）、`init_multitouch`（1 = 依 Windows 流程初始化多點模式，預設；ILITEK 必須）、`report_stationary`（0 = 佇列不放 stationary，預設）、`queue_capacity`（0 = 4096；滿了會丟棄過時事件並重新同步，見「佇列溢位與重新同步」）、`stale_timeout_ms`（長時間不動的觸點視為誤觸並取消：0 = 預設 30000 ms、-1 = 關閉、> 0 為毫秒；見「誤觸」）。
 
 > `stale_timeout_ms` 原本是 `reserved` 欄位（位置與大小不變，struct 仍為 32 bytes，`MTK_API_VERSION` 不變）。舊程式在這個欄位送 0，所以**用新的程式庫時會預設開啟 30 秒的誤觸取消**；不要這個行為時請設 -1。
 

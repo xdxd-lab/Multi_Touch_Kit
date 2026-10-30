@@ -59,12 +59,19 @@ public enum SwipeAxis: Sendable, Equatable, CustomStringConvertible {
 public enum GestureEvent: Sendable, Equatable, CustomStringConvertible {
     /// 把游標移到手勢位置（捲動、縮放等事件會送給游標下方的視窗）
     case pointer(CGPoint)
+    /// 按下；clickCount 為連點次數（1 單擊、2 雙擊、3 三擊）
     case mouseDown(MouseButton, CGPoint, clickCount: Int)
+    /// 按住移動
     case mouseDragged(MouseButton, CGPoint)
+    /// 放開；clickCount 與對應的 mouseDown 相同
     case mouseUp(MouseButton, CGPoint, clickCount: Int)
+    /// 兩指捲動（觸控板式連續捲動）
     case scroll(dx: Double, dy: Double, phase: GesturePhase)
+    /// 放開後的慣性捲動
     case momentum(dx: Double, dy: Double, phase: MomentumPhase)
+    /// 縮放：與上一筆相比的相對變化量
     case magnify(Double, phase: GesturePhase)
+    /// 旋轉：與上一筆相比的角度變化
     case rotate(degrees: Double, phase: GesturePhase)
     /// velocity：結束時沿軸向的速度（progress／秒），用來判斷快速甩動
     case swipe(SwipeAxis, progress: Double, velocity: Double, fingers: Int, phase: GesturePhase)

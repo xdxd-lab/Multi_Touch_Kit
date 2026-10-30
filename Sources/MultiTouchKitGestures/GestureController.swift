@@ -114,7 +114,7 @@ public final class GestureController: @unchecked Sendable {
     // MARK: - 輸入（在 queue 上）
 
     /// 處理一個觸控 frame（在 `queue` 上）：換算到觸控螢幕的全域座標、辨識並送出事件。
-    /// `displayID` 為 nil（找不到顯示器）時只追蹤手指、不送出事件
+    /// `displayID` 為 nil（找不到顯示器）時只追蹤手指、不送出事件；進行中的手勢會被取消並放開按鍵
     public func handle(_ frame: TouchFrame) {
         guard !stopped else { return }
         lastFrameTime = Double(MultiTouchClock.now()) / 1e9
@@ -137,7 +137,17 @@ public final class GestureController: @unchecked Sendable {
         let touches = frame.touches.filter { !ignoredTouchIDs.contains($0.id) }
         for t in frame.touches where t.phase.isTerminal { ignoredTouchIDs.remove(t.id) }
         let time = Double(frame.timestamp) / 1e9
-        guard let displayID else { return }
+        guard let displayID else {
+            // 找不到顯示器（例如觸控螢幕的顯示器被拔除）就無法換算座標：手勢進行中時立即取消並放開按鍵，
+            // 否則手指離開時的 mouseUp 永遠不會送出，系統會一直認為按鍵按住
+            if !recognizer.isIdle {
+                logHandler?("手勢：找不到觸控螢幕所在的顯示器，取消進行中的手勢並放開按鍵")
+                send(recognizer.reset())
+                output.releaseAll()
+                updateTimer()
+            }
+            return
+        }
         let mapping = ScreenMapping(displayID: displayID)
         let mapped = touches.map {
             GestureTouch(id: $0.id, position: mapping.globalPoint(x: $0.x, y: $0.y), isDown: !$0.phase.isTerminal)

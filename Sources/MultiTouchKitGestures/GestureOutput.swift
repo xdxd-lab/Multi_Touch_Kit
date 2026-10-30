@@ -4,6 +4,7 @@ import Foundation
 
 /// 手勢事件的送出端。`send` 一律在 GestureController 的佇列上依序呼叫。
 public protocol GestureOutput: AnyObject, Sendable {
+    /// 依序送出（或記錄）一批事件；同一批來自同一個觸控 frame 或慣性計時
     func send(_ events: [GestureEvent])
     /// 放開所有仍按住的滑鼠鍵、結束所有進行中的連續手勢（結束程式、裝置移除、睡眠等）。
     /// 依送出端自己記錄的狀態處理，與辨識器的狀態無關；沒有東西需要放開時不送任何事件。
