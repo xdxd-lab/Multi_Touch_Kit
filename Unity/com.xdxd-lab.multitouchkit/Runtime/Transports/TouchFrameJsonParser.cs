@@ -158,7 +158,7 @@ namespace MultiTouchKit
             return true;
         }
 
-        // 與 UdpTransport 原本的 ParsePhase 相同：不認得的值視為 Cancelled
+        // 不認得的值（未來新增的階段、損毀的封包）視為 Cancelled：寧可提早結束觸點，也不要讓它卡在螢幕上
         static MultiTouchPhase ParsePhase(byte[] d, int s, int n)
         {
             if (KeyIs(d, s, n, "began")) return MultiTouchPhase.Began;
