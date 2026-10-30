@@ -1,4 +1,4 @@
-# MultiTouchKit 程式碼審查 Q3（2026-10-30，main 71c9883 → 第 6 批）
+# MultiTouchKit 程式碼審查 Q3（2026-10-30，以 main 71c9883 為基準，共 6 批）
 
 上傳新版本前的全面整理，也為了把開發機從 Mac Mini M4 換成 Mac Studio M4：換機後要能直接 clone 建置。
 範圍涵蓋整個 repo（約 1.33 萬行）：Sources（MultiTouchKit、MultiTouchKitC／CMultiTouchKit、MultiTouchKitGestures、MultiTouchKitArt、
