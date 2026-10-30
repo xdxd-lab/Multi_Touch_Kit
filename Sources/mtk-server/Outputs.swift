@@ -121,7 +121,11 @@ final class WebSocketHub: @unchecked Sendable {
             case .ready:
                 send(Data(hello().utf8), to: connection)
                 log("WebSocket 用戶端連線：\(connection.endpoint)")
-            case .failed, .cancelled:
+            case .failed:
+                // 失敗的連線不會自行釋放：必須 cancel（之後會再收到 .cancelled）
+                connections[key] = nil
+                connection.cancel()
+            case .cancelled:
                 connections[key] = nil
             default:
                 break

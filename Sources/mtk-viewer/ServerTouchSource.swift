@@ -11,8 +11,8 @@ final class ServerTouchSource: TouchSource, @unchecked Sendable {
     private let _frameHandler = Locked<(@Sendable (TouchFrame) -> Void)?>(nil)
     private let devices = Locked<[MultiTouchDeviceInfo]>([])
     private let helloReceived = DispatchSemaphore(value: 0)
-    private var task: URLSessionWebSocketTask?
-    private var session: URLSession?
+    /// stop() 在主執行緒、receive 的回呼在 URLSession 的佇列上存取
+    private let connection = Locked<(task: URLSessionWebSocketTask, session: URLSession)?>(nil)
 
     var frameHandler: (@Sendable (TouchFrame) -> Void)? {
         get { _frameHandler.wrapped }
@@ -30,8 +30,7 @@ final class ServerTouchSource: TouchSource, @unchecked Sendable {
         let source = ServerTouchSource(url: url)
         let session = URLSession(configuration: .ephemeral)
         let task = session.webSocketTask(with: url)
-        source.session = session
-        source.task = task
+        source.connection.wrapped = (task, session)
         task.resume()
         source.receive()
         guard source.helloReceived.wait(timeout: .now() + timeout) == .success else {
@@ -45,14 +44,13 @@ final class ServerTouchSource: TouchSource, @unchecked Sendable {
     func start() throws {}
 
     func stop() {
-        task?.cancel(with: .goingAway, reason: nil)
-        task = nil
-        session?.invalidateAndCancel()
-        session = nil
+        guard let (task, session) = connection.withLock({ c in defer { c = nil }; return c }) else { return }
+        task.cancel(with: .goingAway, reason: nil)
+        session.invalidateAndCancel()
     }
 
     private func receive() {
-        task?.receive { [weak self] result in
+        connection.wrapped?.task.receive { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(.string(let text)):
