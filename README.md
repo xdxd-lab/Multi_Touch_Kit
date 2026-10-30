@@ -83,7 +83,7 @@ swift build -c release
 | `Unity/com.xdxd-lab.multitouchkit` | Unity 套件（含 universal `MultiTouchKit.bundle`） |
 | `Examples/` | C、Python（ctypes／UDP／WebSocket／TUIO）、網頁範例 |
 | `Assets/Brand` | 品牌圖示（.icns、1024 PNG、SVG）與 README banner，由 `Sources/MultiTouchKitArt` 以程式產生（`scripts/generate-art.sh`）；**v1 定版**，見 [docs/brand.md](docs/brand.md) |
-| `scripts/` | 測試、建置 Unity 外掛、C 範例、LaunchAgent 安裝／移除、固定簽章身分、產生品牌素材 |
+| `scripts/` | 測試、建置 Unity 外掛、C 範例、LaunchAgent 安裝／移除、固定簽章身分、產生品牌素材、換機用的本機資料備份／還原（[docs/migration.md](docs/migration.md)） |
 | `Tests/` | 單元測試（以實機擷取的報告為 fixture，不需硬體）；`Tests/UnityOffline` 為 Unity C# 的離線測試 |
 
 ## 開發
