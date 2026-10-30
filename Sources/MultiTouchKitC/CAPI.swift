@@ -27,6 +27,7 @@ final class CRuntime: @unchecked Sendable {
     private var callback: MTKEventCallback?
     private var callbackUserData: UnsafeMutableRawPointer?
     private var logs: [String] = []
+    /// 與 header 中 mtk_poll_log 的說明一致
     private static let maxLogs = 128
 
     var isRunning: Bool { lock.withLock { manager != nil } }

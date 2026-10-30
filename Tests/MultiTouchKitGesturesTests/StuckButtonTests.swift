@@ -104,6 +104,18 @@ final class RecordingOutput: GestureOutput, @unchecked Sendable {
         #expect(!out.buttonHeld)
     }
 
+    /// 拖曳中觸控螢幕的顯示器消失（mtk-server 把 displayID 設為 nil）：之後手指離開的 mouseUp 無法換算座標，
+    /// 不在這時放開的話系統會一直認為左鍵按住
+    @Test func losingDisplayReleasesButton() {
+        let (c, out) = makeController()
+        startDrag(c)
+        #expect(out.buttonHeld)
+        c.displayID = nil
+        let touch = Touch(id: 1, contactID: 0, phase: .ended, x: 0.5, y: 0.5, rawX: 0, rawY: 0)
+        queue.sync { c.handle(TouchFrame(deviceID: 1, sequence: 99, timestamp: MultiTouchClock.now(), scanTime: nil, touches: [touch])) }
+        #expect(!out.buttonHeld)
+    }
+
     @Test func watchdogReleasesWhenReportsStop() {
         let (c, out) = makeController()
         startDrag(c)

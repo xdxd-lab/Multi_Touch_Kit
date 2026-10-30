@@ -49,7 +49,7 @@ typedef struct MTKConfig {
     int32_t exclusive;         /* 1 = 獨占裝置（預設），系統不再把觸控當成單點滑鼠 */
     int32_t init_multitouch;   /* 1 = 依 Windows 流程初始化多點模式（預設） */
     int32_t report_stationary; /* 0 = 事件佇列不放入 stationary 事件（預設） */
-    int32_t queue_capacity;    /* 事件佇列容量，0 = 預設 4096；滿了會丟棄最舊的事件 */
+    int32_t queue_capacity;    /* 事件佇列容量，0 = 預設 4096；滿了會丟棄過時事件並重新同步（見 mtk_dropped_event_count） */
     int32_t stale_timeout_ms;  /* 觸點幾乎不動超過此時間就視為誤觸並取消（線材等幽靈觸點）。
                                   0 = 預設 30000、-1 = 關閉、> 0 為毫秒。原為 reserved：舊程式送 0，會得到預設開啟 */
 } MTKConfig; /* 32 bytes */
@@ -91,7 +91,7 @@ int32_t mtk_api_version(void);
 /* 程式庫版本字串（例如 "0.1.0"）。靜態字串，不要釋放。 */
 const char *mtk_version(void);
 
-/* 填入預設設定（含 struct_size）。請先呼叫它再修改需要的欄位，未來新增的欄位才會有正確的預設值。 */
+/* 填入預設設定（含 struct_size）。請先呼叫它再修改需要的欄位，未來新增的欄位才會有正確的預設值。config 為 NULL 時不做任何事。 */
 void mtk_default_config(MTKConfig *config);
 
 /* 開始偵測與讀取。已在執行時會先停止再以新設定重新開始。config 為 NULL 時使用預設值；
@@ -131,7 +131,8 @@ int32_t mtk_device_count(void);
 /* 第 index 個裝置（0 起算）的資訊。info 為 NULL 回傳 MTK_ERR_INVALID_ARGUMENT，超出範圍回傳 MTK_ERR_OUT_OF_RANGE。 */
 int32_t mtk_get_device_info(int32_t index, MTKDeviceInfo *info);
 
-/* 取出一則診斷訊息（UTF-8），回傳寫入的位元組數（不含結尾 0），沒有訊息時回傳 0。 */
+/* 取出一則診斷訊息（UTF-8），回傳寫入的位元組數（不含結尾 0），沒有訊息時回傳 0。
+ * 一定以 0 結尾；capacity 不夠時截斷（不會切斷多位元組字元），該訊息仍視為已取出。最多保留最新的 128 則。 */
 int32_t mtk_poll_log(char *buffer, int32_t capacity);
 
 /* 與 timestamp_ns 相同時基的目前時間 */
@@ -141,7 +142,8 @@ uint64_t mtk_now_ns(void);
  * 把正規化觸控座標換算成目前程式 key window（沒有則 main window）內容區的像素座標，
  * 原點在左下角（與 Unity 的 Screen 座標相同）。
  * display_id = 0 代表觸控螢幕所在的顯示器（由 mtk_set_display 選擇，預設自動）；其他值為 CGDirectDisplayID。
- * 必須在主執行緒呼叫。成功回傳 MTK_OK，沒有視窗回傳 MTK_ERR_NO_WINDOW。
+ * 必須在主執行緒呼叫。成功回傳 MTK_OK，沒有視窗回傳 MTK_ERR_NO_WINDOW；
+ * 不在主執行緒或 out_x／out_y 為 NULL 時回傳 MTK_ERR_INVALID_ARGUMENT（不寫入輸出）。
  */
 int32_t mtk_map_to_window(float x, float y, uint32_t display_id, float *out_x, float *out_y);
 
@@ -153,7 +155,7 @@ int32_t mtk_map_to_window(float x, float y, uint32_t display_id, float *out_x, f
  */
 int32_t mtk_set_display(const char *selector);
 
-/* 目前選到的顯示器 CGDirectDisplayID，找不到時回傳 0。必須在主執行緒呼叫。 */
+/* 目前選到的顯示器 CGDirectDisplayID，找不到時回傳 0。必須在主執行緒呼叫（其他執行緒一律回傳 0）。 */
 uint32_t mtk_touch_display_id(void);
 
 #ifdef __cplusplus

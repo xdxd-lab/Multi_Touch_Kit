@@ -152,7 +152,7 @@ public struct GestureRecognizer: Sendable {
     /// 慣性捲動進行中，需要定期呼叫 `tick`
     public var needsTick: Bool { momentum != nil }
 
-    /// 是否有手勢進行中（含等待手指離開與慣性）
+    /// 沒有任何手勢進行中時為 true；等待手指決定手勢、等待手指離開、慣性捲動中都是 false
     public var isIdle: Bool {
         if momentum != nil { return false }
         if case .idle = state { return true }
