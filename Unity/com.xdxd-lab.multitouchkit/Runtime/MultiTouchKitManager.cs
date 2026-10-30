@@ -233,6 +233,8 @@ namespace MultiTouchKit
             {
                 var remaining = new List<MultiTouchTouch>(m_Active.Values);
                 m_Active.Clear();
+                // 與 GetActiveTouches 相同，依 Id（落下順序）送出；Dictionary 的列舉順序不固定
+                remaining.Sort(ByIdComparer.Instance);
                 foreach (var touch in remaining)
                 {
                     var cancelled = touch;

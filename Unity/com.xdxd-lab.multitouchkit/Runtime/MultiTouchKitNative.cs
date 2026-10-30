@@ -31,7 +31,7 @@ namespace MultiTouchKit
             public int initMultitouch;
             /// <summary>1 = 佇列也放入 stationary 事件（預設 0）。</summary>
             public int reportStationary;
-            /// <summary>事件佇列容量；0 = 預設 4096。</summary>
+            /// <summary>事件佇列容量；0 = 預設 4096。滿了會丟棄過時事件並重新同步，觸點狀態不會遺失。</summary>
             public int queueCapacity;
             /// <summary>0 = 預設 30000 ms、-1 = 關閉、&gt; 0 為毫秒（見 multitouchkit.h）</summary>
             public int staleTimeoutMs;
