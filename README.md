@@ -90,7 +90,8 @@ swift build -c release
 
 ```sh
 swift build                       # 建置全部
-./scripts/test.sh                 # 單元測試（只有 Command Line Tools 時不要直接用 swift test，會找不到 Testing 模組）
+./scripts/test.sh                 # 可攜性檢查＋單元測試（只有 Command Line Tools 時不要直接用 swift test，會找不到 Testing 模組）
+./scripts/check-portability.sh    # 換機可攜性：已追蹤檔案（含外掛 bundle）沒有本機絕對路徑與個人檔案、外掛為 universal
 ./scripts/build-c-example.sh 5    # 編譯並執行 C 範例 5 秒
 ./scripts/test-unity-offline.sh   # 不開 Unity Editor 檢查 C#：編譯套件與範例、執行 Udp 傳輸／JSON 解析器測試
 ./scripts/test-web-example.sh     # 網頁範例的位置換算與頁面腳本測試（macOS 內建的 JavaScriptCore）

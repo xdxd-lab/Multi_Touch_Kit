@@ -1,6 +1,6 @@
 #!/bin/zsh
 # 還原 scripts/backup-local-state.sh 產生的本機資料備份（見 docs/migration.md）。
-# 先以 MANIFEST.txt 驗證 SHA-256，再把 home/ 下的檔案放回 $HOME；已存在的檔案預設不覆蓋。
+# 先以 MANIFEST.txt 驗證 SHA-256，再把 MANIFEST 列出的 home/ 下檔案放回 $HOME；已存在的檔案預設不覆蓋。
 #
 # 用法：scripts/restore-local-state.sh [--force] [--dry-run] <備份 zip>
 #   --force    覆蓋已存在的檔案
@@ -28,9 +28,17 @@ root="$stage/MultiTouchKit-local-state"
 # 驗證完整性：MANIFEST 的雜湊行格式與 shasum 輸出相同
 (cd "$root" && grep -E '^[0-9a-f]{64}  ' MANIFEST.txt | shasum -a 256 -c --quiet) \
     || { print -u2 "SHA-256 驗證失敗，停止還原"; exit 1; }
+# 只還原 MANIFEST 列出（已驗證）的檔案；路徑必須在 home/ 之下且不含 ..，避免寫到 $HOME 以外
+files=(${(f)"$(sed -n -E 's/^[0-9a-f]{64}  //p' "$root/MANIFEST.txt")"})
+for rel in $files; do
+    if [[ "$rel" != home/* || "/$rel/" == */../* ]]; then
+        print -u2 "MANIFEST 中有不允許的路徑，停止還原：$rel"
+        exit 1
+    fi
+done
 
 restored=0 skipped=0
-while IFS= read -r -d '' rel; do
+for rel in $files; do
     dest="$HOME/${rel#home/}"
     if [[ -e "$dest" ]] && (( ! force )); then
         print "略過（已存在）：$dest"
@@ -44,6 +52,6 @@ while IFS= read -r -d '' rel; do
         cp -p "$root/$rel" "$dest"
     fi
     (( restored += 1 ))
-done < <(cd "$root" && find home -type f -print0)
+done
 
 print "完成：還原 $restored 個檔案，略過 $skipped 個$( (( dry )) && print '（dry run，未寫入）')"
