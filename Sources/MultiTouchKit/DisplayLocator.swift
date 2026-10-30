@@ -60,13 +60,21 @@ public struct DisplayInfo: Sendable, Hashable, CustomStringConvertible {
 public struct DisplaySelector: Sendable, Hashable, CustomStringConvertible {
     /// 單一條件；文字格式見型別說明
     public enum Criterion: Sendable, Hashable {
+        /// `auto`：比對時全部符合，再由 `DisplayLocator.resolve` 依面板實體尺寸挑選
         case automatic
+        /// `main`
         case main
+        /// `id:N`
         case id(CGDirectDisplayID)
+        /// `uuid:…`（大寫）
         case uuid(String)
+        /// `edid:VVVV:MMMM[:序號]`；serial 為 nil 時不比對序號
         case edid(vendor: UInt32, model: UInt32, serial: UInt32?)
+        /// `name:…`（包含、不分大小寫）
         case name(String)
+        /// `size:WxH`（像素）
         case size(width: Int, height: Int)
+        /// `hz:N`（差距 0.5 Hz 內）
         case refreshRate(Double)
     }
 
@@ -194,6 +202,8 @@ public enum DisplayLocator {
         }
     }
 
+    /// 找出符合 `selector` 的顯示器；沒有符合的顯示器時回傳 nil。
+    /// 含 `auto` 時依面板實體尺寸挑選，找不到尺寸相近的就退回主螢幕；其他條件符合多台時優先取非主螢幕。
     /// - Parameter panel: 觸控面板資訊，`auto` 用它的實體尺寸比對；nil 時自動模式只能退回主螢幕
     public static func resolve(_ selector: DisplaySelector, panel: MultiTouchDeviceInfo? = nil,
                                displays: [DisplayInfo] = onlineDisplays()) -> Match? {
@@ -239,7 +249,7 @@ public enum DisplayLocator {
             let a = abs(log(long / panelLong))
             let b = abs(log(short / panelShort))
             guard a < log(1.3), b < log(1.3) else { continue }
-            if best == nil || a + b < best!.1 { best = (d, a + b) }
+            if a + b < best?.1 ?? .infinity { best = (d, a + b) }
         }
         return best?.0
     }

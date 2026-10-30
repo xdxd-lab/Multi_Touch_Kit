@@ -64,7 +64,11 @@ struct DigitizerLayout: Sendable {
             }) else { continue }
             fingers[field.reportID, default: [:]][finger.index, default: []].append(field)
         }
-        guard let (reportID, groups) = fingers.max(by: { $0.value.count < $1.value.count }) else { return nil }
+        // Finger collection 最多的 input report 就是觸控報告。同數量時取較小的 report ID：
+        // Dictionary 的走訪順序每次執行都不同，不加這個條件時選到哪一份報告會隨機改變
+        guard let (reportID, groups) = fingers.max(by: {
+            ($0.value.count, -Int($0.key)) < ($1.value.count, -Int($1.key))
+        }) else { return nil }
 
         var slots: [Slot] = []
         for (_, fields) in groups.sorted(by: { $0.key < $1.key }) {

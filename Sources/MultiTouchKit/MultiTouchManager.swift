@@ -212,7 +212,7 @@ public final class MultiTouchManager: @unchecked Sendable {
         }
         if changed {
             publishDevices()
-            for device in devices.values { deviceHandler?(.reinitialized(device.info)) }
+            for device in devices.values.sorted(by: { $0.id < $1.id }) { deviceHandler?(.reinitialized(device.info)) }
         }
     }
 
@@ -246,6 +246,8 @@ public final class MultiTouchManager: @unchecked Sendable {
         // open() 重試時 IOObjectRetain 過
         for item in pending.values { IOObjectRelease(item.service) }
         pending.removeAll()
+        // 下次 start() 時同一台裝置仍被獨占的話要再提示一次
+        exclusiveWarningShown.removeAll()
         retryTimer?.cancel()
         retryTimer = nil
         power?.invalidate()
@@ -379,7 +381,7 @@ public final class MultiTouchManager: @unchecked Sendable {
     private func reinitializeAll(reason: String) {
         guard notifyPort != nil else { return }
         if !devices.isEmpty { emitLog("\(reason)，重新初始化所有裝置") }
-        for device in devices.values { reinitialize(device) }
+        for device in devices.values.sorted(by: { $0.id < $1.id }) { reinitialize(device) }
     }
 
     private func publishDevices() {
