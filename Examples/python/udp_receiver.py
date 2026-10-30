@@ -14,13 +14,16 @@ port = int(sys.argv[1]) if len(sys.argv) > 1 else 7777
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind(("127.0.0.1", port))
 print(f"等待 UDP 127.0.0.1:{port} …（Ctrl+C 離開）")
-while True:
-    data, _ = sock.recvfrom(65535)
-    msg = json.loads(data)
-    if msg["type"] == "frame":
-        changes = [f'{t["id"]}:{t["phase"]}({t["x"]:.3f},{t["y"]:.3f})'
-                   for t in msg["touches"] if t["phase"] != "stationary"]
-        if changes:
-            print(f'裝置 {msg["device"]} seq {msg["seq"]}: ' + " ".join(changes))
-    else:
-        print(msg)
+try:
+    while True:
+        data, _ = sock.recvfrom(65535)
+        msg = json.loads(data)
+        if msg["type"] == "frame":
+            changes = [f'{t["id"]}:{t["phase"]}({t["x"]:.3f},{t["y"]:.3f})'
+                       for t in msg["touches"] if t["phase"] != "stationary"]
+            if changes:
+                print(f'裝置 {msg["device"]} seq {msg["seq"]}: ' + " ".join(changes))
+        else:
+            print(msg)
+except KeyboardInterrupt:
+    pass  # Ctrl+C 正常結束，不印出 traceback

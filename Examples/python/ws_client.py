@@ -16,9 +16,11 @@ sys.stdout.reconfigure(line_buffering=True)
 
 url = urlparse(sys.argv[1] if len(sys.argv) > 1 else "ws://127.0.0.1:7778")
 duration = float(sys.argv[2]) if len(sys.argv) > 2 else 0
-sock = socket.create_connection((url.hostname, url.port or 80))
+# 網址沒寫埠時是 ws 的預設 80（Host 標頭也要用同一個值，不能寫成 None）
+port = url.port or 80
+sock = socket.create_connection((url.hostname, port))
 key = base64.b64encode(os.urandom(16)).decode()
-sock.sendall((f"GET {url.path or '/'} HTTP/1.1\r\nHost: {url.hostname}:{url.port}\r\n"
+sock.sendall((f"GET {url.path or '/'} HTTP/1.1\r\nHost: {url.hostname}:{port}\r\n"
               f"Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
               "Sec-WebSocket-Version: 13\r\n\r\n").encode())
 buffer = b""
