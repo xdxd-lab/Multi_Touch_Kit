@@ -24,6 +24,9 @@ lipo -create \
     ".build/x86_64-apple-macosx/release/libMultiTouchKitC.dylib" \
     -output "$OUT/Contents/MacOS/MultiTouchKit"
 install_name_tool -id "@rpath/MultiTouchKit.bundle/Contents/MacOS/MultiTouchKit" "$OUT/Contents/MacOS/MultiTouchKit"
+# 移除除錯符號（-S）與非匯出的本機符號（-x）：除錯符號表中的 N_OSO 項目記錄建置機器上 .o 的絕對路徑
+# （/Users/<名稱>/…），提交到 repo 會洩漏本機路徑，換機重建時也會產生無意義的差異。匯出符號（C API）不受影響
+strip -S -x "$OUT/Contents/MacOS/MultiTouchKit"
 
 cat > "$OUT/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
