@@ -52,8 +52,9 @@ public struct Touch: Sendable, Equatable {
     public var height: Double?
     /// 控制器判斷是否為有意的觸碰（false 通常是手掌）；不支援時為 nil
     public var confidence: Bool?
-    /// 套用觸控校正前的正規化座標（`TouchCalibration`）；沒有套用校正時為 nil，x、y 就是原始值
+    /// 套用觸控校正前的正規化 x（`TouchCalibration`）；沒有套用校正時為 nil，`x` 就是原始值
     public var uncalibratedX: Double?
+    /// 套用觸控校正前的正規化 y；沒有套用校正時為 nil
     public var uncalibratedY: Double?
 
     /// 一般由 MultiTouchManager 建立；測試或自訂的觸控來源可自行建立

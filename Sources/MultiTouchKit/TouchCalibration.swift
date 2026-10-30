@@ -10,16 +10,22 @@ import Foundation
 /// - 網格插值會剛好穿過每個校正點，沒有冗餘，單次誤觸就會扭曲那一區。
 /// - 二次多項式能吸收常見的對位非線性，9 點擬合 6 項仍有 3 個自由度可平均雜訊；點數不足 6 時退回仿射。
 public struct TouchCalibration: Sendable, Equatable, Codable {
+    /// 多項式的項數（rawValue 即 calibration.json 中的 `model`）
     public enum Model: String, Sendable, Codable {
+        /// 3 項：c0 + c1·u + c2·v
         case affine
+        /// 6 項：仿射再加 u²、u·v、v²
         case quadratic
     }
 
+    /// 使用的模型；決定 `x`、`y` 應有的係數數量
     public var model: Model
-    /// x、y 各自的係數（仿射 3 項、二次 6 項，順序見型別說明）
+    /// 輸出 x 的係數（仿射 3 項、二次 6 項，順序見型別說明）
     public var x: [Double]
+    /// 輸出 y 的係數（同 `x`）
     public var y: [Double]
 
+    /// 係數數量與 `model` 不符的軸在套用時不校正（見 `apply(x:y:)`）
     public init(model: Model, x: [Double], y: [Double]) {
         self.model = model
         self.x = x
@@ -48,11 +54,14 @@ public struct TouchCalibration: Sendable, Equatable, Codable {
 
     /// 一個校正點：使用者想按的位置（十字）與實際量到的原始座標（多次點擊的中位數）
     public struct Sample: Sendable, Equatable, Codable {
+        /// 十字的位置（正規化座標）
         public var target: Point
+        /// 量到的校正前座標（正規化座標）
         public var measured: Point
         /// 這個點收集到的點擊次數（只供顯示與紀錄）
         public var count: Int
 
+        /// - Parameter count: 點擊次數，只供顯示與紀錄
         public init(target: Point, measured: Point, count: Int = 1) {
             self.target = target
             self.measured = measured
@@ -60,9 +69,13 @@ public struct TouchCalibration: Sendable, Equatable, Codable {
         }
     }
 
+    /// 正規化座標（0...1，原點在面板左上，與 `Touch.x`／`Touch.y` 相同）
     public struct Point: Sendable, Equatable, Codable {
+        /// 由左到右
         public var x: Double
+        /// 由上到下
         public var y: Double
+        /// 以正規化座標建立
         public init(x: Double, y: Double) {
             self.x = x
             self.y = y
@@ -71,6 +84,7 @@ public struct TouchCalibration: Sendable, Equatable, Codable {
 
     /// 擬合結果
     public struct Fit: Sendable, Equatable {
+        /// 擬合出的校正（`problem` 不為 nil 時不應套用）
         public var calibration: TouchCalibration
         /// 每個點（與輸入順序相同）套用後與目標的距離（正規化座標，以面板長寬換算成 mm 見 `residualMillimeters`）
         public var residuals: [Double]
@@ -198,14 +212,22 @@ public enum TouchCalibrationSource: Sendable, Equatable {
 /// 依裝置比對：VID＋PID，序號非空時也要相同。ILITEK 沒有序號，USB 位置（LocationID）又會隨插孔改變，
 /// 所以只在同一個 VID／PID 有多筆時才以 LocationID 優先。顯示器的 EDID 只供紀錄（面板與 LCD 是一體的）。
 public struct TouchCalibrationStore: Sendable {
+    /// 一個裝置的校正紀錄
     public struct Entry: Sendable, Equatable, Codable {
+        /// 校正時的觸控裝置（比對規則見 `TouchCalibrationStore`）
         public struct Device: Sendable, Equatable, Codable {
+            /// USB Vendor ID
             public var vendorID: Int
+            /// USB Product ID
             public var productID: Int
+            /// 序號；空字串代表裝置沒有序號（ILITEK），比對時不檢查
             public var serialNumber: String
+            /// USB 位置；同 VID／PID 有多筆紀錄時才用來挑選
             public var locationID: Int
+            /// 產品名稱；只供紀錄
             public var product: String
 
+            /// 取出 `info` 中用來比對的欄位
             public init(_ info: MultiTouchDeviceInfo) {
                 vendorID = info.vendorID
                 productID = info.productID
@@ -215,17 +237,24 @@ public struct TouchCalibrationStore: Sendable {
             }
         }
 
+        /// 校正的裝置
         public var device: Device
-        /// 校正時觸控螢幕所在的顯示器（DisplayInfo.edid、名稱）；只供紀錄
+        /// 校正時觸控螢幕所在顯示器的 `DisplayInfo.edid`；只供紀錄
         public var displayEDID: String?
+        /// 校正時觸控螢幕所在顯示器的名稱；只供紀錄
         public var displayName: String?
+        /// 要套用的校正
         public var calibration: TouchCalibration
+        /// 擬合時使用的校正點
         public var samples: [TouchCalibration.Sample]
-        /// 校正前後的平均誤差（mm；面板尺寸未知時以正規化座標 × 1000 記錄）
+        /// 校正前的平均誤差（mm；面板尺寸未知時以正規化座標 × 1000 記錄）
         public var errorBefore: Double
+        /// 校正後的平均誤差（單位同 `errorBefore`）
         public var errorAfter: Double
+        /// 校正的時間
         public var date: Date
 
+        /// 建立一筆紀錄（`date` 預設為現在）
         public init(device: Device, displayEDID: String?, displayName: String?, calibration: TouchCalibration,
                     samples: [TouchCalibration.Sample], errorBefore: Double, errorAfter: Double, date: Date = Date()) {
             self.device = device
@@ -249,13 +278,16 @@ public struct TouchCalibrationStore: Sendable {
         var entries: [Entry]
     }
 
+    /// ~/Library/Application Support/MultiTouchKit/calibration.json（所有使用 MultiTouchKit 的程式共用）
     public static var defaultURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/MultiTouchKit/calibration.json")
     }
 
+    /// 讀寫的校正檔
     public let url: URL
 
+    /// 只記錄路徑，不會讀取或建立檔案
     public init(url: URL = TouchCalibrationStore.defaultURL) {
         self.url = url
     }

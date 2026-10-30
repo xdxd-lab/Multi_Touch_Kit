@@ -14,16 +14,19 @@ public struct TouchCalibrationCollector: Sendable {
 
     /// 一次點擊的結果（給畫面顯示）
     public struct Tap: Sendable, Equatable {
+        /// 這次點擊的代表位置（校正前的正規化座標）
         public var position: TouchCalibration.Point
         /// 歸給的十字；nil = 離所有十字都太遠，不採用
         public var target: Int?
     }
 
+    /// 十字的位置（正規化座標）；`taps` 的索引與它相同
     public let targets: [TouchCalibration.Point]
     /// 歸屬半徑（以面板寬度為 1 的距離）
     public var captureRadius: Double
-    /// 面板實體尺寸（mm）；用來換算距離與誤差。未知時視為 16:9、寬 310 mm
+    /// 面板實體寬度（mm）；用來換算距離與誤差。未知時視為 16:9、寬 310 mm
     public let panelWidth: Double
+    /// 面板實體高度（mm）
     public let panelHeight: Double
     /// 每個十字收集到的點擊位置
     public private(set) var taps: [[TouchCalibration.Point]]
@@ -32,6 +35,10 @@ public struct TouchCalibrationCollector: Sendable {
     private var pressing: [UInt64: (start: UInt64, positions: [TouchCalibration.Point])] = [:]
     private static let settleNanoseconds: UInt64 = 40_000_000
 
+    /// - Parameters:
+    ///   - captureRadius: 見 `captureRadius`
+    ///   - panelWidthMillimeters: 面板實體寬度（`MultiTouchDeviceInfo.physicalWidthMillimeters`）；nil 時見 `panelWidth`
+    ///   - panelHeightMillimeters: 面板實體高度；nil 時見 `panelWidth`
     public init(targets: [TouchCalibration.Point] = TouchCalibrationCollector.standardTargets, captureRadius: Double = 0.08,
                 panelWidthMillimeters: Double? = nil, panelHeightMillimeters: Double? = nil) {
         self.targets = targets
