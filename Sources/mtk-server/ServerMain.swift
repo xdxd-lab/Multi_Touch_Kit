@@ -43,7 +43,7 @@ struct ServerOptions {
                         例：edid:6474:aa15、name:Sculptor,size:1920x1080（格式見 docs/server-protocol.md）
       --list-displays   列出顯示器後離開
       --simulate        使用模擬觸控（不需要硬體）
-      --simulate-pattern drums|gestures  模擬觸控的模式（隱含 --simulate；預設 drums）。
+      --simulate-pattern drums|gestures|calibration  模擬觸控的模式（隱含 --simulate；預設 drums）。
                         gestures：每 12 秒依序做出各種手勢，搭配 --gestures 驗證辨識
                         calibration：依序點擊 9 個校正十字（帶面板偏差），搭配 mtk-viewer --calibrate
       --verbose         印出每個觸控事件
