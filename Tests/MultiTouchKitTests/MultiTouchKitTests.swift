@@ -64,7 +64,8 @@ import Testing
         #expect(layout.slots[2].x.value(in: payload) == 0)
     }
 
-    /// 兩份 Finger 數量相同的觸控報告：一律選 report ID 較小的（不受 Dictionary 走訪順序影響）
+    /// Finger 數量相同的多份觸控報告：一律選 report ID 最小的（不受 Dictionary 走訪順序影響）。
+    /// 舊的寫法選到哪一份取決於每個行程隨機的雜湊種子，無法穩定重現；用 8 份候選，舊寫法碰巧選對的機率只剩約 1/8
     @Test func equalCandidateReportsPickLowestID() throws {
         func touchScreen(reportID: UInt8) -> [UInt8] {
             [0x05, 0x0D, 0x09, 0x04, 0xA1, 0x01, 0x85, reportID,
@@ -75,7 +76,9 @@ import Testing
              0x09, 0x31, 0x81, 0x02,                                                 // Y
              0xC0, 0xC0]
         }
-        for bytes in [touchScreen(reportID: 9) + touchScreen(reportID: 2), touchScreen(reportID: 2) + touchScreen(reportID: 9)] {
+        let ids: [UInt8] = [9, 2, 7, 5, 3, 8, 6, 4]
+        for order in [ids, ids.reversed()] {
+            let bytes = order.flatMap { touchScreen(reportID: $0) }
             let layout = try #require(DigitizerLayout(descriptor: try HIDReportDescriptor(bytes: bytes)))
             #expect(layout.reportID == 2)
             #expect(layout.slots.count == 1)
